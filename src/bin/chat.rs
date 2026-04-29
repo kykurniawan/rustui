@@ -74,22 +74,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             text
                         ));
                     }
-                    "registered" => {
-                        if let Some(id) = json.get("id").and_then(|v| v.as_str()) {
-                            if id != app.my_id {
-                                app.add_contact(id.to_string(), id.to_string());
-                            }
-                        }
-                    }
                     "list" => {
                         if let Some(clients) = json.get("clients").and_then(|v| v.as_array()) {
-                            for client in clients {
-                                if let Some(id) = client.as_str() {
-                                    if id != app.my_id && !app.contacts.contains_key(id) {
-                                        app.add_contact(id.to_string(), id.to_string());
-                                    }
-                                }
-                            }
+                            let ids: Vec<String> = clients.iter()
+                                .filter_map(|c| c.as_str().map(String::from))
+                                .collect();
+                            app.set_participants(ids);
+                        }
+                    }
+                    "registered" => {
+                        if let Some(id) = json.get("id").and_then(|v| v.as_str()) {
+                            app.set_participants(vec![id.to_string()]);
                         }
                     }
                     "error" => {
@@ -117,56 +112,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             if !app.input.is_empty() {
                                 let input = app.input.trim().to_string();
                                 
-                                if input.starts_with("/add ") {
-                                    let parts: Vec<&str> = input.splitn(2, ' ').collect();
-                                    if parts.len() == 2 {
-                                        let contact_id = parts[1].trim().to_string();
-                                        if !contact_id.is_empty() {
-                                            if app.contacts.contains_key(&contact_id) {
-                                                app.add_message(format!("[system] Contact {} already exists", contact_id));
-                                            } else {
-                                                app.add_contact(contact_id.clone(), contact_id.clone());
-                                                app.add_message(format!("[system] Added contact: {}", contact_id));
-                                                
-                                                let send_msg = serde_json::json!({
-                                                    "SendTo": {
-                                                        "to": contact_id.clone(),
-                                                        "msg": "Hello!"
-                                                    }
-                                                });
-                                                let _ = write.send(Message::Text(send_msg.to_string())).await;
-                                            }
-                                        }
-                                    } else {
-                                        app.add_message("[system] Usage: /add <id>".to_string());
-                                    }
-                                } else if input.starts_with("/open ") {
-                                    let parts: Vec<&str> = input.splitn(2, ' ').collect();
-                                    if parts.len() == 2 {
-                                        let target_id = parts[1].trim().to_string();
-                                        if app.contacts.contains_key(&target_id) {
-                                            app.selected_contact = Some(target_id.clone());
-                                            app.add_message(format!("[system] Opened chat with {}", target_id));
-                                        } else {
-                                            app.add_message(format!("[system] Contact {} not found", target_id));
-                                        }
-                                    } else {
-                                        app.add_message("[system] Usage: /open <id>".to_string());
-                                    }
-                                } else if let Some(target_id) = &app.selected_contact {
-                                    let msg = format!("[{}] you: {}", "00:02:00", input);
-                                    app.messages.push(Spans::from(msg));
-                                    
-                                    let send_msg = serde_json::json!({
-                                        "SendTo": {
-                                            "to": target_id,
-                                            "msg": input
-                                        }
-                                    });
-                                    let _ = write.send(Message::Text(send_msg.to_string())).await;
-                                } else {
-                                    app.add_message("[system] Select a contact with /open <id>".to_string());
-                                }
+                                let msg = format!("[{}] {}: {}", "00:02:00", app.my_id, input);
+                                app.messages.push(Spans::from(msg));
+                                
+                                let send_msg = serde_json::json!({
+                                    "Broadcast": { "msg": input }
+                                });
+                                let _ = write.send(Message::Text(send_msg.to_string())).await;
+                                
                                 app.input.clear();
                             }
                         }

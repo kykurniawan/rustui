@@ -1,8 +1,6 @@
 pub use tui::text::Spans;
 pub use tui::style::Style;
 
-use std::collections::HashMap;
-
 use tui::{
     backend::CrosstermBackend,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
@@ -17,8 +15,7 @@ pub struct App {
     pub messages: Vec<Spans<'static>>,
     pub input: String,
     pub input_scroll: u16,
-    pub contacts: HashMap<String, String>,
-    pub selected_contact: Option<String>,
+    pub participants: Vec<String>,
 }
 
 impl App {
@@ -39,7 +36,7 @@ impl App {
                 Span::raw("] "),
                 Span::styled("system", Style::default().fg(Color::Cyan).add_modifier(tui::style::Modifier::BOLD)),
                 Span::raw(":"),
-                Span::raw(" Press 'a' to add a contact"),
+                Span::raw(" Type a message to broadcast to all participants"),
             ]),
         ];
 
@@ -48,8 +45,7 @@ impl App {
             messages,
             input: String::new(),
             input_scroll: 0,
-            contacts: HashMap::new(),
-            selected_contact: None,
+            participants: vec![],
         }
     }
 
@@ -57,8 +53,8 @@ impl App {
         self.messages.push(Spans::from(msg));
     }
 
-    pub fn add_contact(&mut self, id: String, name: String) {
-        self.contacts.insert(id, name);
+    pub fn set_participants(&mut self, participants: Vec<String>) {
+        self.participants = participants;
     }
 }
 
@@ -72,13 +68,12 @@ pub fn draw_chat_screen<W: std::io::Write>(f: &mut Frame<CrosstermBackend<W>>, a
         ])
         .split(area);
 
-    let status = format!("CONNECTED | ID: {}", app.my_id);
+    let status = format!("CONNECTED | ID: {} | {} participants", app.my_id, app.participants.len());
 
     let header = Paragraph::new(
         Text::from(vec![Spans::from(vec![
             Span::raw(">> SECURE_CHAT | "),
             Span::styled(status, Style::default().fg(Color::Green).add_modifier(tui::style::Modifier::BOLD)),
-            Span::raw(" | /add <id> | /open <id>"),
         ])])
     )
     .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::DarkGray)))
@@ -93,27 +88,20 @@ pub fn draw_chat_screen<W: std::io::Write>(f: &mut Frame<CrosstermBackend<W>>, a
         ])
         .split(chunks[1]);
 
-    let contact_items: Vec<ListItem> = app
-        .contacts
+let participant_items: Vec<ListItem> = app
+        .participants
         .iter()
-        .map(|(id, name)| {
-            let is_selected = app.selected_contact.as_ref().map_or(false, |s| s == id);
-            let style = if is_selected {
-                Style::default().fg(Color::Yellow).add_modifier(tui::style::Modifier::BOLD)
-            } else {
-                Style::default().fg(Color::White)
-            };
-            let prefix = if is_selected { ">" } else { " " };
-            ListItem::new(format!("{} {} ({})", prefix, name, id))
-                .style(style)
+        .map(|id| {
+            ListItem::new(id.as_str())
+                .style(Style::default().fg(Color::White))
         })
         .collect();
 
-    let contact_list = List::new(contact_items)
-        .block(Block::default().title(" CONTACTS ").borders(Borders::ALL).border_style(Style::default().fg(Color::DarkGray)))
+    let participant_list = List::new(participant_items)
+        .block(Block::default().title(" PARTICIPANTS ").borders(Borders::ALL).border_style(Style::default().fg(Color::DarkGray)))
         .style(Style::default().fg(Color::White));
 
-    f.render_widget(contact_list, main_chunks[0]);
+    f.render_widget(participant_list, main_chunks[0]);
 
     let message_area = Paragraph::new(Text::from(app.messages.clone()))
         .block(
@@ -144,11 +132,9 @@ pub fn draw_chat_screen<W: std::io::Write>(f: &mut Frame<CrosstermBackend<W>>, a
     if input_area.width > 2 && input_area.height > 2 {
         let line_width = (input_area.width - 2) as usize;
         let input_len = app.input.len();
-        let _total_lines = (input_len + line_width - 1) / line_width.max(1);
+        let current_line = if line_width > 0 { input_len / line_width } else { 0 };
         let visible_lines = (input_area.height - 2) as usize;
 
-        let current_line = if line_width > 0 { input_len / line_width } else { 0 };
-        
         if current_line >= (app.input_scroll as usize + visible_lines) {
             app.input_scroll = ((current_line + 1).saturating_sub(visible_lines)) as u16;
         } else if current_line < app.input_scroll as usize && app.input_scroll > 0 {

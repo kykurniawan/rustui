@@ -11,7 +11,7 @@ type ClientMap = Arc<RwLock<HashMap<String, mpsc::Sender<String>>>>;
 #[derive(serde::Serialize, serde::Deserialize)]
 enum Cmd {
     Register { id: String },
-    SendTo { to: String, msg: String },
+    Broadcast { msg: String },
     List,
 }
 
@@ -75,6 +75,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                                                     let ids: Vec<String> = clients.keys().cloned().collect();
                                                     
+                                                    let list_msg = serde_json::json!({"type": "list", "clients": ids.clone()}).to_string();
+                                                    
+                                                    for (_, sender) in clients.iter() {
+                                                        sender.send(list_msg.clone()).await.ok();
+                                                    }
+                                                    
                                                     write.send(Message::Text(
                                                         serde_json::json!({"type": "registered", "id": id}).to_string()
                                                     )).await.ok();
@@ -87,22 +93,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                     
                                                     rx = new_rx;
                                                 }
-                                                Cmd::SendTo { to, msg } => {
+                                                Cmd::Broadcast { msg } => {
+                                                    let from = if my_id.is_empty() { peer_str.clone() } else { my_id.clone() };
                                                     let clients = clients.read().await;
-                                                    if let Some(sender) = clients.get(&to) {
-                                                        let from = if my_id.is_empty() { peer_str.clone() } else { my_id.clone() };
-                                                        let payload = serde_json::json!({
-                                                            "type": "message",
-                                                            "from": from,
-                                                            "msg": msg
-                                                        }).to_string();
-                                                        let _ = sender.send(payload).await;
-                                                        println!("Message from {} to {}: {}", from, to, msg);
-                                                    } else {
-                                                        write.send(Message::Text(
-                                                            serde_json::json!({"type": "error", "msg": "User not found"}).to_string()
-                                                        )).await.ok();
+                                                    let payload = serde_json::json!({
+                                                        "type": "message",
+                                                        "from": from,
+                                                        "msg": msg
+                                                    }).to_string();
+                                                    for (id, sender) in clients.iter() {
+                                                        if id != &my_id {
+                                                            let _ = sender.send(payload.clone()).await;
+                                                        }
                                                     }
+                                                    println!("Broadcast from {}: {}", from, msg);
                                                 }
                                                 Cmd::List => {
                                                     let clients = clients.read().await;
