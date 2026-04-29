@@ -8,7 +8,7 @@ use tui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::Color,
     text::{Span, Text},
-    widgets::{Block, Borders, Paragraph, List, ListItem, Wrap},
+    widgets::{Block, Borders, Paragraph, Wrap},
     Frame,
 };
 
@@ -25,11 +25,14 @@ pub fn get_timestamp() -> String {
 
 
 
+
+
 pub struct App {
     pub username: String,
     pub messages: Vec<Spans<'static>>,
     pub input: String,
     pub input_scroll: u16,
+    pub message_scroll: u16,
     pub participants: Vec<String>,
     pub authenticated: bool,
 }
@@ -41,6 +44,7 @@ impl App {
             messages: vec![],
             input: String::new(),
             input_scroll: 0,
+            message_scroll: 0,
             participants: vec![],
             authenticated: false,
         }
@@ -185,7 +189,15 @@ pub fn draw_chat_screen<W: std::io::Write>(f: &mut Frame<CrosstermBackend<W>>, a
         .split(area);
 
     let status = if app.authenticated {
-        format!("Logged in as {} | {} participants", app.username, app.participants.len())
+        let self_in_list = app.participants.iter().any(|p| p == &app.username);
+        let display_participants = if self_in_list {
+            app.participants.clone()
+        } else {
+            let mut p = app.participants.clone();
+            p.insert(0, app.username.clone());
+            p
+        };
+        format!("Logged in as {} | {} online", app.username, display_participants.len())
     } else {
         "Not authenticated".to_string()
     };
@@ -200,39 +212,57 @@ pub fn draw_chat_screen<W: std::io::Write>(f: &mut Frame<CrosstermBackend<W>>, a
     .style(Style::default().fg(Color::White));
     f.render_widget(header, chunks[0]);
 
-    let main_chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Length(20),
-            Constraint::Min(0),
-        ])
-        .split(chunks[1]);
+    let visible_height = chunks[1].height.saturating_sub(2) as usize;
+    let total_messages = app.messages.len();
+    
+    if total_messages > visible_height && app.message_scroll > 0 {
+        if app.message_scroll as usize >= total_messages {
+            app.message_scroll = total_messages.saturating_sub(1) as u16;
+        }
+    }
 
-let participant_items: Vec<ListItem> = app
-        .participants
-        .iter()
-        .map(|id| {
-            ListItem::new(id.as_str())
-                .style(Style::default().fg(Color::White))
-        })
-        .collect();
+    let start_idx = if total_messages > visible_height {
+        if app.message_scroll as usize >= total_messages - visible_height {
+            total_messages - visible_height
+        } else {
+            app.message_scroll as usize
+        }
+    } else {
+        0
+    };
 
-    let participant_list = List::new(participant_items)
-        .block(Block::default().title(" PARTICIPANTS ").borders(Borders::ALL).border_style(Style::default().fg(Color::DarkGray)))
-        .style(Style::default().fg(Color::White));
+    let _msg_area_width = chunks[1].width.saturating_sub(4) as usize;
 
-    f.render_widget(participant_list, main_chunks[0]);
-
-    let message_area = Paragraph::new(Text::from(app.messages.clone()))
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::DarkGray))
-        )
-        .style(Style::default().fg(Color::White))
-        .wrap(Wrap { trim: true });
-
-    f.render_widget(message_area, main_chunks[1]);
+    let mut y_offset = chunks[1].y + 1;
+    let visible_msgs: Vec<_> = app.messages.iter().skip(start_idx).take(visible_height).collect();
+    
+for (i, msg) in visible_msgs.iter().enumerate() {
+        let actual_idx = start_idx + i;
+        let is_selected = actual_idx == app.message_scroll as usize;
+        
+        let border_color = if is_selected { Color::Yellow } else { Color::DarkGray };
+        
+        let plain_text: String = msg.0.iter().map(|s| s.content.to_string()).collect();
+        
+        let paragraph = Paragraph::new(plain_text)
+            .block(
+                Block::default()
+                    .title(format!("#{}", actual_idx + 1))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(border_color))
+            )
+            .style(Style::default().fg(Color::White))
+            .wrap(Wrap { trim: true });
+        
+        let rect = Rect {
+            x: chunks[1].x + 1,
+            y: y_offset,
+            width: chunks[1].width - 2,
+            height: 4,
+        };
+        f.render_widget(paragraph, rect);
+        y_offset += 4;
+    }
 
     let input_block = Paragraph::new(app.input.as_str())
         .block(
