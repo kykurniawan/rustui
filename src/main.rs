@@ -5,6 +5,7 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use futures_util::StreamExt;
 use tui::{
     backend::CrosstermBackend,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
@@ -13,12 +14,15 @@ use tui::{
     widgets::{Block, Borders, Paragraph, List, ListItem},
     Frame, Terminal,
 };
+use tokio::net::TcpListener;
+use tokio::sync::mpsc;
 
 struct App {
     messages: Vec<Spans<'static>>,
     input: String,
     contacts: Vec<&'static str>,
     selected_contact: usize,
+    connected_clients: usize,
 }
 
 impl App {
@@ -30,7 +34,7 @@ impl App {
                 Span::raw("] "),
                 Span::styled("system", Style::default().fg(Color::Cyan).add_modifier(tui::style::Modifier::BOLD)),
                 Span::raw(":"),
-                Span::raw(" Connection established to SECURE_NODE_772"),
+                Span::raw(" WebSocket server started on port 8080"),
             ]),
             Spans::from(vec![
                 Span::raw("["),
@@ -38,47 +42,7 @@ impl App {
                 Span::raw("] "),
                 Span::styled("system", Style::default().fg(Color::Cyan).add_modifier(tui::style::Modifier::BOLD)),
                 Span::raw(":"),
-                Span::raw(" Encryption: AES-256 | Protocol: TLS 1.3"),
-            ]),
-            Spans::from(vec![
-                Span::raw("["),
-                Span::styled("00:00:05", Style::default().fg(Color::DarkGray)),
-                Span::raw("] "),
-                Span::styled("shadow_runner", Style::default().fg(Color::Green).add_modifier(tui::style::Modifier::BOLD)),
-                Span::raw(":"),
-                Span::raw(" Hey, you got the access codes?"),
-            ]),
-            Spans::from(vec![
-                Span::raw("["),
-                Span::styled("00:00:12", Style::default().fg(Color::DarkGray)),
-                Span::raw("] "),
-                Span::styled("ghost", Style::default().fg(Color::Yellow).add_modifier(tui::style::Modifier::BOLD)),
-                Span::raw(":"),
-                Span::raw(" Yeah, intercepted the packet. DMZ is compromised."),
-            ]),
-            Spans::from(vec![
-                Span::raw("["),
-                Span::raw("00:00:18"),
-                Span::raw("] "),
-                Span::styled("shadow_runner", Style::default().fg(Color::Green).add_modifier(tui::style::Modifier::BOLD)),
-                Span::raw(":"),
-                Span::raw("Nice work. Meeting at 0300?"),
-            ]),
-            Spans::from(vec![
-                Span::raw("["),
-                Span::styled("00:00:25", Style::default().fg(Color::DarkGray)),
-                Span::raw("] "),
-                Span::styled("ghost", Style::default().fg(Color::Yellow).add_modifier(tui::style::Modifier::BOLD)),
-                Span::raw(":"),
-                Span::raw(" Copy that. Use the backup channel."),
-            ]),
-            Spans::from(vec![
-                Span::raw("["),
-                Span::styled("00:01:30", Style::default().fg(Color::DarkGray)),
-                Span::raw("] "),
-                Span::styled("system", Style::default().fg(Color::Cyan).add_modifier(tui::style::Modifier::BOLD)),
-                Span::raw(":"),
-                Span::raw(" >> Incoming transmission from NODE_X9"),
+                Span::raw(" Waiting for connections..."),
             ]),
         ];
 
@@ -96,7 +60,12 @@ impl App {
             input: String::new(),
             contacts,
             selected_contact: 0,
+            connected_clients: 0,
         }
+    }
+
+    fn add_message(&mut self, msg: String) {
+        self.messages.push(Spans::from(msg));
     }
 }
 
@@ -110,13 +79,17 @@ fn draw_chat_screen<W: std::io::Write>(f: &mut Frame<CrosstermBackend<W>>, area:
         ])
         .split(area);
 
+    let status = if app.connected_clients > 0 {
+        format!("ONLINE | {} client(s) connected", app.connected_clients)
+    } else {
+        "WAITING".to_string()
+    };
+
     let header = Paragraph::new(
         Text::from(vec![Spans::from(vec![
             Span::raw(">> SECURE_CHAT v2.4.1 | "),
-            Span::styled("ENCRYPTED", Style::default().fg(Color::Green).add_modifier(tui::style::Modifier::BOLD)),
-            Span::raw(" | "),
-            Span::styled("ONLINE", Style::default().fg(Color::Green)),
-            Span::raw(" | channel: #darknet"),
+            Span::styled(status, Style::default().fg(if app.connected_clients > 0 { Color::Green } else { Color::Yellow }).add_modifier(tui::style::Modifier::BOLD)),
+            Span::raw(" | channel: #darknet | ws://localhost:8080"),
         ])])
     )
     .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::DarkGray)))
@@ -188,6 +161,50 @@ fn draw_chat_screen<W: std::io::Write>(f: &mut Frame<CrosstermBackend<W>>, area:
 }
 
 fn main() -> Result<(), io::Error> {
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+
+    let (tx, mut rx) = mpsc::channel::<String>(100);
+
+    rt.spawn(async move {
+        let listener = TcpListener::bind("127.0.0.1:8080").await.unwrap();
+        println!("WebSocket server listening on 127.0.0.1:8080");
+
+        loop {
+            tokio::select! {
+                result = listener.accept() => {
+                    if let Ok((stream, peer_addr)) = result {
+                        println!("New connection from: {}", peer_addr);
+                        let tx = tx.clone();
+
+                        tokio::spawn(async move {
+                            let ws_stream = match tokio_tungstenite::accept_async(stream).await {
+                                Ok(s) => s,
+                                Err(_) => return,
+                            };
+                            let (_, mut read) = ws_stream.split();
+
+                            while let Some(msg) = read.next().await {
+                                match msg {
+                                    Ok(tokio_tungstenite::tungstenite::Message::Text(text)) => {
+                                        let _ = tx.send(text).await;
+                                    }
+                                    Ok(tokio_tungstenite::tungstenite::Message::Close(_)) => {
+                                        println!("Client {} disconnected", peer_addr);
+                                        break;
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        });
+                    }
+                }
+            }
+        }
+    });
+
     enable_raw_mode()?;
     let mut stdout = io::stdout();
 
@@ -203,6 +220,11 @@ fn main() -> Result<(), io::Error> {
             let size = f.size();
             draw_chat_screen(f, size, &app);
         })?;
+
+        while let Some(msg) = rx.try_recv().ok() {
+            app.add_message(msg);
+            app.connected_clients += 1;
+        }
 
         if event::poll(Duration::from_millis(50))? {
             if let Event::Key(key) = event::read()? {
