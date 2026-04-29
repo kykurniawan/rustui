@@ -8,7 +8,7 @@ use tui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::Color,
     text::{Span, Text},
-    widgets::{Block, Borders, Paragraph, List, ListItem},
+    widgets::{Block, Borders, Paragraph, List, ListItem, Wrap},
     Frame,
 };
 
@@ -16,6 +16,7 @@ pub struct App {
     pub my_id: String,
     pub messages: Vec<Spans<'static>>,
     pub input: String,
+    pub input_scroll: u16,
     pub contacts: HashMap<String, String>,
     pub selected_contact: Option<String>,
 }
@@ -46,6 +47,7 @@ impl App {
             my_id,
             messages,
             input: String::new(),
+            input_scroll: 0,
             contacts: HashMap::new(),
             selected_contact: None,
         }
@@ -60,13 +62,13 @@ impl App {
     }
 }
 
-pub fn draw_chat_screen<W: std::io::Write>(f: &mut Frame<CrosstermBackend<W>>, area: Rect, app: &App) {
+pub fn draw_chat_screen<W: std::io::Write>(f: &mut Frame<CrosstermBackend<W>>, area: Rect, app: &mut App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3),
             Constraint::Min(0),
-            Constraint::Length(3),
+            Constraint::Length(5),
         ])
         .split(area);
 
@@ -76,7 +78,7 @@ pub fn draw_chat_screen<W: std::io::Write>(f: &mut Frame<CrosstermBackend<W>>, a
         Text::from(vec![Spans::from(vec![
             Span::raw(">> SECURE_CHAT | "),
             Span::styled(status, Style::default().fg(Color::Green).add_modifier(tui::style::Modifier::BOLD)),
-            Span::raw(" | /add <id> to add contact"),
+            Span::raw(" | /add <id> | /open <id>"),
         ])])
     )
     .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::DarkGray)))
@@ -119,7 +121,8 @@ pub fn draw_chat_screen<W: std::io::Write>(f: &mut Frame<CrosstermBackend<W>>, a
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(Color::DarkGray))
         )
-        .style(Style::default().fg(Color::White));
+        .style(Style::default().fg(Color::White))
+        .wrap(Wrap { trim: true });
 
     f.render_widget(message_area, main_chunks[1]);
 
@@ -131,18 +134,32 @@ pub fn draw_chat_screen<W: std::io::Write>(f: &mut Frame<CrosstermBackend<W>>, a
                 .border_style(Style::default().fg(Color::Green))
         )
         .style(Style::default().fg(Color::Green))
-        .alignment(Alignment::Left);
+        .alignment(Alignment::Left)
+        .wrap(Wrap { trim: true })
+        .scroll((app.input_scroll, 0));
 
     f.render_widget(input_block, chunks[2]);
 
-    if f.size().height > 0 {
-        let input_area = chunks[2];
-        if input_area.width > 5 {
-            let cursor_x = input_area.x + 1 + app.input.len() as u16;
-            let cursor_y = input_area.y + 1;
-            if cursor_x < input_area.right() {
-                f.set_cursor(cursor_x, cursor_y);
-            }
+    let input_area = chunks[2];
+    if input_area.width > 2 && input_area.height > 2 {
+        let line_width = (input_area.width - 2) as usize;
+        let input_len = app.input.len();
+        let _total_lines = (input_len + line_width - 1) / line_width.max(1);
+        let visible_lines = (input_area.height - 2) as usize;
+
+        let current_line = if line_width > 0 { input_len / line_width } else { 0 };
+        
+        if current_line >= (app.input_scroll as usize + visible_lines) {
+            app.input_scroll = ((current_line + 1).saturating_sub(visible_lines)) as u16;
+        } else if current_line < app.input_scroll as usize && app.input_scroll > 0 {
+            app.input_scroll = current_line as u16;
         }
+
+        let cursor_col = if line_width > 0 { input_len % line_width } else { 0 };
+        let cursor_row = current_line.saturating_sub(app.input_scroll as usize);
+        let cursor_x = input_area.x + 1 + cursor_col as u16;
+        let cursor_y = input_area.y + 1 + cursor_row as u16;
+        
+        f.set_cursor(cursor_x, cursor_y);
     }
 }

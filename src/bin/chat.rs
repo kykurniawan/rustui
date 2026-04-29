@@ -57,7 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     loop {
         terminal.draw(|f| {
             let size = f.size();
-            draw_chat_screen(f, size, &app);
+            draw_chat_screen(f, size, &mut app);
         })?;
 
         if let Some(msg) = rx.try_recv().ok() {
@@ -140,6 +140,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     } else {
                                         app.add_message("[system] Usage: /add <id>".to_string());
                                     }
+                                } else if input.starts_with("/open ") {
+                                    let parts: Vec<&str> = input.splitn(2, ' ').collect();
+                                    if parts.len() == 2 {
+                                        let target_id = parts[1].trim().to_string();
+                                        if app.contacts.contains_key(&target_id) {
+                                            app.selected_contact = Some(target_id.clone());
+                                            app.add_message(format!("[system] Opened chat with {}", target_id));
+                                        } else {
+                                            app.add_message(format!("[system] Contact {} not found", target_id));
+                                        }
+                                    } else {
+                                        app.add_message("[system] Usage: /open <id>".to_string());
+                                    }
                                 } else if let Some(target_id) = &app.selected_contact {
                                     let msg = format!("[{}] you: {}", "00:02:00", input);
                                     app.messages.push(Spans::from(msg));
@@ -152,41 +165,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     });
                                     let _ = write.send(Message::Text(send_msg.to_string())).await;
                                 } else {
-                                    app.add_message("[system] Select a contact first with up/down arrows".to_string());
+                                    app.add_message("[system] Select a contact with /open <id>".to_string());
                                 }
                                 app.input.clear();
-                            }
-                        }
-                        KeyCode::Up => {
-                            let ids: Vec<_> = app.contacts.keys().cloned().collect();
-                            if !ids.is_empty() {
-                                if let Some(current) = &app.selected_contact {
-                                    if let Some(idx) = ids.iter().position(|x| x == current) {
-                                        if idx > 0 {
-                                            app.selected_contact = Some(ids[idx - 1].clone());
-                                        }
-                                    } else {
-                                        app.selected_contact = Some(ids[0].clone());
-                                    }
-                                } else {
-                                    app.selected_contact = Some(ids[0].clone());
-                                }
-                            }
-                        }
-                        KeyCode::Down => {
-                            let ids: Vec<_> = app.contacts.keys().cloned().collect();
-                            if !ids.is_empty() {
-                                if let Some(current) = &app.selected_contact {
-                                    if let Some(idx) = ids.iter().position(|x| x == current) {
-                                        if idx < ids.len() - 1 {
-                                            app.selected_contact = Some(ids[idx + 1].clone());
-                                        }
-                                    } else {
-                                        app.selected_contact = Some(ids[ids.len() - 1].clone());
-                                    }
-                                } else {
-                                    app.selected_contact = Some(ids[0].clone());
-                                }
                             }
                         }
                         KeyCode::Esc => break,
