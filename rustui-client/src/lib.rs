@@ -460,8 +460,7 @@ pub fn draw_chat_screen<W: std::io::Write>(
             Style::default().fg(Color::White)
         };
 
-        let prefix = if is_selected { ">> " } else { "   " };
-        let display_text = format!("{}{}", prefix, plain_text);
+        let display_text = format!("{}", plain_text);
 
         let paragraph = Paragraph::new(display_text)
             .style(style)
