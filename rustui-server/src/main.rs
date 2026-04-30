@@ -28,8 +28,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let clients: ClientMap = Arc::new(RwLock::new(HashMap::new()));
     let users = Arc::new(load_users());
 
-    let listener = TcpListener::bind("127.0.0.1:8081").await?;
-    println!("WebSocket server listening on ws://127.0.0.1:8081");
+    let listener = TcpListener::bind("127.0.0.1:8080").await?;
+    println!("WebSocket server listening on ws://127.0.0.1:8080");
     println!("Available users:");
     for (username, _) in users.iter() {
         println!("  - {}", username);
@@ -81,33 +81,46 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                 Cmd::Auth { username, password } => {
                                                     if let Some(stored_pass) = users.get(&username) {
                                                         if *stored_pass == password {
-                                                            let mut clients = clients.write().await;
-                                                            clients.remove(&peer_str);
-                                                            if let Some(old_tx) = clients.remove(&username) {
-                                                                drop(old_tx);
-                                                            }
-                                                            my_username = username.clone();
                                                             let (new_tx, new_rx) = mpsc::channel::<String>(100);
-                                                            clients.insert(username.clone(), new_tx);
-
-                                                            let ids: Vec<String> = clients.keys().cloned().collect();
                                                             
-                                                            let list_msg = serde_json::json!({"type": "list", "clients": ids.clone()}).to_string();
-                                                            
-                                                            for (_, sender) in clients.iter() {
-                                                                sender.send(list_msg.clone()).await.ok();
+                                                            {
+                                                                let mut clients = clients.write().await;
+                                                                clients.remove(&peer_str);
+                                                                if let Some(old_tx) = clients.remove(&username) {
+                                                                    drop(old_tx);
+                                                                }
+                                                                my_username = username.clone();
+                                                                clients.insert(username.clone(), new_tx);
                                                             }
-                                                            
+
+                                                            // Send authenticated message first
                                                             write.send(Message::Text(
                                                                 serde_json::json!({"type": "authenticated", "username": username}).to_string()
                                                             )).await.ok();
                                                             
+                                                            println!("User authenticated: {}", username);
+                                                            
+                                                            // Get the updated client list and broadcast to everyone
+                                                            let ids: Vec<String>;
+                                                            {
+                                                                let clients = clients.read().await;
+                                                                ids = clients.keys().cloned().collect();
+                                                                let list_msg = serde_json::json!({"type": "list", "clients": ids.clone()}).to_string();
+                                                                
+                                                                // Send to all OTHER clients via their channels
+                                                                for (client_id, sender) in clients.iter() {
+                                                                    if client_id != &username {
+                                                                        let _ = sender.send(list_msg.clone()).await;
+                                                                    }
+                                                                }
+                                                            }
+                                                            
+                                                            // Send directly to THIS client via WebSocket (not channel)
                                                             write.send(Message::Text(
                                                                 serde_json::json!({"type": "list", "clients": ids}).to_string()
                                                             )).await.ok();
                                                             
-                                                            println!("User authenticated: {}", username);
-                                                            
+                                                            // Switch to the new receiver AFTER sending the list
                                                             rx = new_rx;
                                                         } else {
                                                             write.send(Message::Text(
@@ -161,7 +174,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             let ids: Vec<String> = clients.keys().cloned().collect();
                                             let list_msg = serde_json::json!({"type": "list", "clients": ids}).to_string();
                                             for (_, sender) in clients.iter() {
-                                                sender.send(list_msg.clone()).await.ok();
+                                                let _ = sender.send(list_msg.clone()).await;
                                             }
                                         } else {
                                             let mut clients = clients.write().await;
@@ -169,7 +182,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         }
                                         break;
                                     }
-                                    None | Some(Err(_)) => break,
+                                    None | Some(Err(_)) => {
+                                        println!("Client {} connection error or closed", peer_addr);
+                                        if !my_username.is_empty() {
+                                            let mut clients = clients.write().await;
+                                            clients.remove(&my_username);
+                                            
+                                            let ids: Vec<String> = clients.keys().cloned().collect();
+                                            let list_msg = serde_json::json!({"type": "list", "clients": ids}).to_string();
+                                            for (_, sender) in clients.iter() {
+                                                let _ = sender.send(list_msg.clone()).await;
+                                            }
+                                        } else {
+                                            let mut clients = clients.write().await;
+                                            clients.remove(&peer_str);
+                                        }
+                                        break;
+                                    }
                                     _ => {}
                                 }
                             }

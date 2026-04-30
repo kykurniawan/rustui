@@ -376,7 +376,7 @@ pub fn draw_chat_screen<W: std::io::Write>(
     };
 
     let header = Paragraph::new(Text::from(vec![Spans::from(vec![
-        Span::raw(">> SECURE CHAT | "),
+        Span::raw("SECURE CHAT | "),
         Span::styled(
             status,
             Style::default()

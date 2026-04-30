@@ -109,7 +109,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // Authentication loop
+    // Send authentication message immediately after connection
+    let auth_msg = serde_json::json!({
+        "Auth": { "username": &login_state.username, "password": &login_state.password }
+    });
+    write.send(Message::Text(auth_msg.to_string())).await?;
+
+    // Authentication loop - wait for server response
+    let mut pending_messages: Vec<String> = Vec::new();
     loop {
         terminal.draw(|f| {
             let size = f.size();
@@ -130,7 +137,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let err_msg = json.get("msg").and_then(|v| v.as_str()).unwrap_or("Unknown error");
                         login_state.error = err_msg.to_string();
                     }
-                    _ => {}
+                    _ => {
+                        // Store unhandled messages for processing after authentication
+                        pending_messages.push(msg);
+                    }
                 }
             }
         }
@@ -139,14 +149,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
                     match key.code {
-                        KeyCode::Enter => {
-                            if !login_state.username.is_empty() && !login_state.password.is_empty() {
-                                let auth_msg = serde_json::json!({
-                                    "Auth": { "username": &login_state.username, "password": &login_state.password }
-                                });
-                                write.send(Message::Text(auth_msg.to_string())).await?;
-                            }
-                        }
                         KeyCode::Esc => {
                             disable_raw_mode()?;
                             execute!(
@@ -171,13 +173,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut app = App::new();
     app.init(username.clone());
 
+    // Process any pending messages that arrived during authentication
+    for msg in pending_messages {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&msg) {
+            let msg_type = json.get("type").and_then(|v| v.as_str()).unwrap_or("");
+            match msg_type {
+                "list" => {
+                    if let Some(clients) = json.get("clients").and_then(|v| v.as_array()) {
+                        let ids: Vec<String> = clients.iter()
+                            .filter_map(|c| c.as_str().map(String::from))
+                            .collect();
+                        app.set_participants(ids);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
     loop {
         terminal.draw(|f| {
             let size = f.size();
             draw_chat_screen(f, size, &mut app);
         })?;
 
-        if let Some(msg) = rx.try_recv().ok() {
+        // Process ALL available messages, not just one
+        while let Some(msg) = rx.try_recv().ok() {
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&msg) {
                 let msg_type = json.get("type").and_then(|v| v.as_str()).unwrap_or("");
                 match msg_type {

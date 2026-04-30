@@ -3,6 +3,21 @@
 ## [Unreleased]
 
 ### Fixed
+- **Login flow**: Fixed double-enter requirement after password input
+  - Authentication message now sent immediately after form submission
+  - Only one Enter press needed to login
+  - Authentication loop now only waits for server response
+
+- **Participant count**: Fixed incorrect online user count for new clients
+  - **Root cause #1**: Authentication loop was discarding unhandled messages (including "list")
+  - **Root cause #2**: Client was only processing one message per loop iteration
+  - **Solution**: Store pending messages during auth loop and process them after authentication
+  - Changed from `if let` to `while let` to process ALL queued messages in main loop
+  - Server sends "authenticated" and "list" messages back-to-back
+  - Client now processes both messages correctly before first UI render
+  - Disconnect handling properly broadcasts updated count to all remaining clients
+  - All clients see accurate online user count in real-time
+
 - **Chat scrolling**: Fixed chat message display when messages exceed the visible area
   - Messages now properly scroll with intelligent height calculation
   - Removed fixed-height message boxes that caused overflow
