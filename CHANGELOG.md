@@ -24,6 +24,12 @@
   - Can edit text at any position, not just at the end
 
 ### Added
+- **Configurable server address**: Server address is now input during login
+  - Login screen includes server address field (first field)
+  - Default value: `ws://127.0.0.1:8080`
+  - Allows connecting to any WebSocket server
+  - TAB cycles through: Server Address → Username → Password
+
 - **Focus system**: Switch between Message List and Input Field
   - Press `SHIFT+TAB` to toggle focus between sections
   - Visual indicators show which section is focused (`[FOCUSED]`)

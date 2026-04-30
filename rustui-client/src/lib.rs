@@ -187,6 +187,7 @@ impl App {
 }
 
 pub struct LoginState {
+    pub server_address: String,
     pub username: String,
     pub password: String,
     pub active_field: u8,
@@ -196,6 +197,7 @@ pub struct LoginState {
 impl LoginState {
     pub fn new() -> Self {
         Self {
+            server_address: "ws://127.0.0.1:8080".to_string(), // Default value
             username: String::new(),
             password: String::new(),
             active_field: 0,
@@ -212,7 +214,7 @@ pub fn draw_login_screen<W: std::io::Write>(
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Percentage(30),
+            Constraint::Percentage(25),
             Constraint::Min(0),
             Constraint::Length(3),
         ])
@@ -234,10 +236,32 @@ pub fn draw_login_screen<W: std::io::Write>(
             Constraint::Length(3),
             Constraint::Length(3),
             Constraint::Length(3),
+            Constraint::Length(3),
         ])
         .split(chunks[1]);
 
-    let username_style = if state.active_field == 0 {
+    // Server Address field
+    let server_style = if state.active_field == 0 {
+        Style::default().fg(Color::Green)
+    } else {
+        Style::default().fg(Color::White)
+    };
+    let server_input = Paragraph::new(state.server_address.as_str())
+        .block(
+            Block::default()
+                .title(" Server Address (ws://host:port) ")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(if state.active_field == 0 {
+                    Color::Green
+                } else {
+                    Color::DarkGray
+                })),
+        )
+        .style(server_style);
+    f.render_widget(server_input, form_chunks[0]);
+
+    // Username field
+    let username_style = if state.active_field == 1 {
         Style::default().fg(Color::Green)
     } else {
         Style::default().fg(Color::White)
@@ -247,17 +271,18 @@ pub fn draw_login_screen<W: std::io::Write>(
             Block::default()
                 .title(" Username ")
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(if state.active_field == 0 {
+                .border_style(Style::default().fg(if state.active_field == 1 {
                     Color::Green
                 } else {
                     Color::DarkGray
                 })),
         )
         .style(username_style);
-    f.render_widget(username_input, form_chunks[0]);
+    f.render_widget(username_input, form_chunks[1]);
 
+    // Password field
     let password_display: String = state.password.chars().map(|_| '*').collect();
-    let password_style = if state.active_field == 1 {
+    let password_style = if state.active_field == 2 {
         Style::default().fg(Color::Green)
     } else {
         Style::default().fg(Color::White)
@@ -267,20 +292,20 @@ pub fn draw_login_screen<W: std::io::Write>(
             Block::default()
                 .title(" Password ")
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(if state.active_field == 1 {
+                .border_style(Style::default().fg(if state.active_field == 2 {
                     Color::Green
                 } else {
                     Color::DarkGray
                 })),
         )
         .style(password_style);
-    f.render_widget(password_input, form_chunks[1]);
+    f.render_widget(password_input, form_chunks[2]);
 
     let help = Paragraph::new(Text::from("Press TAB to switch fields | ENTER to login"))
         .block(Block::default().borders(Borders::NONE))
         .style(Style::default().fg(Color::DarkGray))
         .alignment(Alignment::Center);
-    f.render_widget(help, form_chunks[2]);
+    f.render_widget(help, form_chunks[3]);
 
     if !state.error.is_empty() {
         let error_block = Paragraph::new(state.error.as_str())
@@ -294,16 +319,27 @@ pub fn draw_login_screen<W: std::io::Write>(
         f.render_widget(error_block, chunks[2]);
     }
 
-    if state.active_field == 0 {
-        let cursor_x = form_chunks[0].x
-            + 1
-            + state.username.len().min(form_chunks[0].width as usize - 2) as u16;
-        f.set_cursor(cursor_x, form_chunks[0].y + 1);
-    } else {
-        let cursor_x = form_chunks[1].x
-            + 1
-            + state.password.len().min(form_chunks[1].width as usize - 2) as u16;
-        f.set_cursor(cursor_x, form_chunks[1].y + 1);
+    // Set cursor position based on active field
+    match state.active_field {
+        0 => {
+            let cursor_x = form_chunks[0].x
+                + 1
+                + state.server_address.len().min(form_chunks[0].width as usize - 2) as u16;
+            f.set_cursor(cursor_x, form_chunks[0].y + 1);
+        }
+        1 => {
+            let cursor_x = form_chunks[1].x
+                + 1
+                + state.username.len().min(form_chunks[1].width as usize - 2) as u16;
+            f.set_cursor(cursor_x, form_chunks[1].y + 1);
+        }
+        2 => {
+            let cursor_x = form_chunks[2].x
+                + 1
+                + state.password.len().min(form_chunks[2].width as usize - 2) as u16;
+            f.set_cursor(cursor_x, form_chunks[2].y + 1);
+        }
+        _ => {}
     }
 }
 

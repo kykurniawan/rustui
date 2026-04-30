@@ -34,6 +34,13 @@ In another terminal, start the client:
 cargo run -p rustui-client
 ```
 
+You'll be prompted to enter:
+1. **Server Address**: WebSocket URL (e.g., `ws://127.0.0.1:8080`)
+2. **Username**: Your username
+3. **Password**: Your password
+
+The default server address is pre-filled as `ws://127.0.0.1:8080`.
+
 ## Features
 
 - WebSocket-based real-time chat
@@ -54,9 +61,10 @@ cargo run -p rustui-client
 ## Controls
 
 ### Login Screen
-- **TAB**: Switch between username and password fields
-- **ENTER**: Submit login
+- **TAB**: Switch between server address, username, and password fields
+- **ENTER**: Connect and login
 - **BACKSPACE**: Delete character
+- **ESC**: Exit application
 
 ### Chat Screen
 

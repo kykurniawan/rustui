@@ -11,12 +11,6 @@ use futures_util::{SinkExt, StreamExt};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let url = "ws://127.0.0.1:8080";
-    let (ws_stream, _) = connect_async(url).await?;
-    println!("Connected to server!");
-
-    let (mut write, mut read) = ws_stream.split();
-
     enable_raw_mode()?;
     let mut stdout = std::io::stdout();
 
@@ -29,6 +23,82 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut authenticated = false;
     let mut username = String::new();
 
+    // Login screen loop
+    loop {
+        terminal.draw(|f| {
+            let size = f.size();
+            draw_login_screen(f, size, &login_state);
+        })?;
+
+        if event::poll(Duration::from_millis(50))? {
+            if let Event::Key(key) = event::read()? {
+                if key.kind == KeyEventKind::Press {
+                    match key.code {
+                        KeyCode::Tab => {
+                            login_state.active_field = (login_state.active_field + 1) % 3;
+                        }
+                        KeyCode::Char(c) => {
+                            match login_state.active_field {
+                                0 => login_state.server_address.push(c),
+                                1 => login_state.username.push(c),
+                                2 => login_state.password.push(c),
+                                _ => {}
+                            }
+                            login_state.error.clear();
+                        }
+                        KeyCode::Backspace => {
+                            match login_state.active_field {
+                                0 => { login_state.server_address.pop(); }
+                                1 => { login_state.username.pop(); }
+                                2 => { login_state.password.pop(); }
+                                _ => {}
+                            }
+                        }
+                        KeyCode::Enter => {
+                            if !login_state.server_address.is_empty() 
+                                && !login_state.username.is_empty() 
+                                && !login_state.password.is_empty() {
+                                break;
+                            } else {
+                                login_state.error = "All fields are required".to_string();
+                            }
+                        }
+                        KeyCode::Esc => {
+                            disable_raw_mode()?;
+                            execute!(
+                                terminal.backend_mut(),
+                                LeaveAlternateScreen,
+                                DisableMouseCapture
+                            )?;
+                            terminal.show_cursor()?;
+                            return Ok(());
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    // Connect to server
+    let server_address = &login_state.server_address;
+    let (ws_stream, _) = match connect_async(server_address).await {
+        Ok(stream) => stream,
+        Err(e) => {
+            disable_raw_mode()?;
+            execute!(
+                terminal.backend_mut(),
+                LeaveAlternateScreen,
+                DisableMouseCapture
+            )?;
+            terminal.show_cursor()?;
+            eprintln!("Failed to connect to {}: {}", server_address, e);
+            return Err(e.into());
+        }
+    };
+
+    let (mut write, mut read) = ws_stream.split();
+
     let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(100);
 
     tokio::spawn(async move {
@@ -39,10 +109,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    // Authentication loop
     loop {
         terminal.draw(|f| {
             let size = f.size();
-            draw_login_screen(f, size, &mut login_state);
+            draw_login_screen(f, size, &login_state);
         })?;
 
         while let Some(msg) = rx.try_recv().ok() {
@@ -68,24 +139,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
                     match key.code {
-                        KeyCode::Tab => {
-                            login_state.active_field = if login_state.active_field == 0 { 1 } else { 0 };
-                        }
-                        KeyCode::Char(c) => {
-                            if login_state.active_field == 0 {
-                                login_state.username.push(c);
-                            } else {
-                                login_state.password.push(c);
-                            }
-                            login_state.error.clear();
-                        }
-                        KeyCode::Backspace => {
-                            if login_state.active_field == 0 {
-                                login_state.username.pop();
-                            } else {
-                                login_state.password.pop();
-                            }
-                        }
                         KeyCode::Enter => {
                             if !login_state.username.is_empty() && !login_state.password.is_empty() {
                                 let auth_msg = serde_json::json!({
@@ -93,6 +146,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 });
                                 write.send(Message::Text(auth_msg.to_string())).await?;
                             }
+                        }
+                        KeyCode::Esc => {
+                            disable_raw_mode()?;
+                            execute!(
+                                terminal.backend_mut(),
+                                LeaveAlternateScreen,
+                                DisableMouseCapture
+                            )?;
+                            terminal.show_cursor()?;
+                            return Ok(());
                         }
                         _ => {}
                     }

@@ -28,8 +28,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let clients: ClientMap = Arc::new(RwLock::new(HashMap::new()));
     let users = Arc::new(load_users());
 
-    let listener = TcpListener::bind("127.0.0.1:8080").await?;
-    println!("WebSocket server listening on ws://127.0.0.1:8080");
+    let listener = TcpListener::bind("127.0.0.1:8081").await?;
+    println!("WebSocket server listening on ws://127.0.0.1:8081");
     println!("Available users:");
     for (username, _) in users.iter() {
         println!("  - {}", username);
