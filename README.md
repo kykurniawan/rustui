@@ -45,5 +45,7 @@ cargo run -p rustui-client
 - **TAB**: Switch between username and password fields (login screen)
 - **ENTER**: Submit login / Send message
 - **ESC**: Exit application
-- **UP/DOWN**: Navigate messages
+- **UP/DOWN**: Scroll through messages one at a time
+- **PAGE UP/PAGE DOWN**: Scroll through messages 10 at a time
+- **END**: Jump to the bottom of messages (latest)
 - **BACKSPACE**: Delete character

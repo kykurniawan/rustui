@@ -167,21 +167,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                         }
                         KeyCode::Up => {
-                            if !app.messages.is_empty() {
-                                if app.message_scroll > 0 {
-                                    app.message_scroll -= 1;
-                                } else {
-                                    app.message_scroll = (app.messages.len() - 1) as u16;
-                                }
-                            }
+                            app.scroll_up();
                         }
                         KeyCode::Down => {
-                            if !app.messages.is_empty() {
-                                if app.message_scroll < (app.messages.len() - 1) as u16 {
-                                    app.message_scroll += 1;
-                                } else {
-                                    app.message_scroll = 0;
-                                }
+                            app.scroll_down();
+                        }
+                        KeyCode::End => {
+                            app.scroll_to_bottom();
+                        }
+                        KeyCode::PageUp => {
+                            for _ in 0..10 {
+                                app.scroll_up();
+                            }
+                        }
+                        KeyCode::PageDown => {
+                            for _ in 0..10 {
+                                app.scroll_down();
                             }
                         }
                         KeyCode::Esc => break,

@@ -9,7 +9,7 @@ use tui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::Color,
     text::{Span, Text},
-    widgets::{Block, Borders, Paragraph, Wrap},
+    widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
 };
 
 pub fn get_timestamp() -> String {
@@ -28,9 +28,10 @@ pub struct App {
     pub messages: Vec<Spans<'static>>,
     pub input: String,
     pub input_scroll: u16,
-    pub message_scroll: u16,
+    pub message_scroll: usize,
     pub participants: Vec<String>,
     pub authenticated: bool,
+    pub auto_scroll: bool,
 }
 
 impl App {
@@ -43,6 +44,7 @@ impl App {
             message_scroll: 0,
             participants: vec![],
             authenticated: false,
+            auto_scroll: true,
         }
     }
 
@@ -74,10 +76,35 @@ impl App {
 
     pub fn add_message(&mut self, msg: String) {
         self.messages.push(Spans::from(msg));
+        if self.auto_scroll {
+            self.message_scroll = self.messages.len().saturating_sub(1);
+        }
     }
 
     pub fn set_participants(&mut self, participants: Vec<String>) {
         self.participants = participants;
+    }
+
+    pub fn scroll_up(&mut self) {
+        if self.message_scroll > 0 {
+            self.message_scroll = self.message_scroll.saturating_sub(1);
+            self.auto_scroll = false;
+        }
+    }
+
+    pub fn scroll_down(&mut self) {
+        if self.message_scroll < self.messages.len().saturating_sub(1) {
+            self.message_scroll = self.message_scroll.saturating_add(1);
+            // Re-enable auto-scroll if we're at the bottom
+            if self.message_scroll >= self.messages.len().saturating_sub(1) {
+                self.auto_scroll = true;
+            }
+        }
+    }
+
+    pub fn scroll_to_bottom(&mut self) {
+        self.message_scroll = self.messages.len().saturating_sub(1);
+        self.auto_scroll = true;
     }
 }
 
@@ -251,66 +278,48 @@ pub fn draw_chat_screen<W: std::io::Write>(
     .style(Style::default().fg(Color::White));
     f.render_widget(header, chunks[0]);
 
-    let visible_height = chunks[1].height.saturating_sub(2) as usize;
-    let total_messages = app.messages.len();
-
-    if total_messages > visible_height && app.message_scroll > 0 {
-        if app.message_scroll as usize >= total_messages {
-            app.message_scroll = total_messages.saturating_sub(1) as u16;
-        }
-    }
-
-    let start_idx = if total_messages > visible_height {
-        if app.message_scroll as usize >= total_messages - visible_height {
-            total_messages - visible_height
-        } else {
-            app.message_scroll as usize
-        }
-    } else {
-        0
-    };
-
-    let _msg_area_width = chunks[1].width.saturating_sub(4) as usize;
-
-    let mut y_offset = chunks[1].y + 1;
-    let visible_msgs: Vec<_> = app
+    // Create list items from messages
+    let items: Vec<ListItem> = app
         .messages
         .iter()
-        .skip(start_idx)
-        .take(visible_height)
+        .map(|msg| {
+            let plain_text: String = msg.0.iter().map(|s| s.content.to_string()).collect();
+            ListItem::new(plain_text)
+        })
         .collect();
 
-    for (i, msg) in visible_msgs.iter().enumerate() {
-        let actual_idx = start_idx + i;
-        let is_selected = actual_idx == app.message_scroll as usize;
+    let total_messages = items.len();
+    let _visible_height = chunks[1].height.saturating_sub(2) as usize;
 
-        let border_color = if is_selected {
-            Color::Yellow
-        } else {
-            Color::DarkGray
-        };
+    let scroll_indicator = if total_messages > _visible_height {
+        format!(" [{}/{}] ↑↓ to scroll | END to bottom ", 
+            app.message_scroll + 1, 
+            total_messages)
+    } else {
+        String::new()
+    };
 
-        let plain_text: String = msg.0.iter().map(|s| s.content.to_string()).collect();
+    let messages_list = List::new(items)
+        .block(
+            Block::default()
+                .title(format!(" MESSAGES{} ", scroll_indicator))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::DarkGray)),
+        )
+        .style(Style::default().fg(Color::White))
+        .highlight_style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(tui::style::Modifier::BOLD),
+        )
+        .highlight_symbol(">> ");
 
-        let paragraph = Paragraph::new(plain_text)
-            .block(
-                Block::default()
-                    .title(format!("#{}", actual_idx + 1))
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(border_color)),
-            )
-            .style(Style::default().fg(Color::White))
-            .wrap(Wrap { trim: true });
+    // Use stateful widget to handle selection
+    let mut list_state = tui::widgets::ListState::default();
+    list_state.select(Some(app.message_scroll));
 
-        let rect = Rect {
-            x: chunks[1].x + 1,
-            y: y_offset,
-            width: chunks[1].width - 2,
-            height: 4,
-        };
-        f.render_widget(paragraph, rect);
-        y_offset += 4;
-    }
+    // Render with scroll offset
+    f.render_stateful_widget(messages_list, chunks[1], &mut list_state);
 
     let input_block = Paragraph::new(app.input.as_str())
         .block(

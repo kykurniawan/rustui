@@ -1,0 +1,27 @@
+# Changelog
+
+## [Unreleased]
+
+### Fixed
+- **Chat scrolling**: Fixed chat message display when messages exceed the visible area
+  - Messages now properly scroll using TUI's `List` widget with `ListState`
+  - Removed fixed-height message boxes that caused overflow
+  - Added auto-scroll feature that follows new messages automatically
+  - Auto-scroll disables when manually scrolling up, re-enables when scrolling to bottom
+
+### Added
+- **Enhanced scroll controls**:
+  - `UP/DOWN` arrows: Scroll one message at a time
+  - `PAGE UP/PAGE DOWN`: Scroll 10 messages at a time
+  - `END` key: Jump to the latest message (bottom)
+  - Visual scroll indicator showing current position (e.g., "[5/20] ↑↓ to scroll | END to bottom")
+  
+- **Improved UX**:
+  - Selected message highlighted with yellow color and `>>` indicator
+  - Scroll position indicator in the messages panel title
+  - Auto-scroll intelligently follows new messages when at bottom
+
+### Changed
+- `App.message_scroll` type changed from `u16` to `usize` for better indexing
+- Added `App.auto_scroll` field to track auto-scroll state
+- Added helper methods: `scroll_up()`, `scroll_down()`, `scroll_to_bottom()`
