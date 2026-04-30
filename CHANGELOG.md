@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Added
+- **End-to-End Encryption (E2E)**: Messages are now encrypted before sending
+  - Uses AES-256-GCM encryption algorithm
+  - Shared secret key entered during login (4th field)
+  - Server only sees encrypted messages (base64-encoded ciphertext)
+  - Messages decrypted only on recipient clients
+  - All users must use the same encryption key to communicate
+  - Failed decryption shows `[encrypted: ...]` instead of plaintext
+  - Encryption key field added to login screen
+
+- **Configurable server address**: Server address is now input during login
+  - Login screen includes server address field (first field)
+  - Default value: `ws://127.0.0.1:8080`
+  - Allows connecting to any WebSocket server
+  - TAB cycles through: Server Address → Username → Password → Encryption Key
+
 ### Fixed
 - **Login flow**: Fixed double-enter requirement after password input
   - Authentication message now sent immediately after form submission

@@ -38,6 +38,7 @@ You'll be prompted to enter:
 1. **Server Address**: WebSocket URL (e.g., `ws://127.0.0.1:8080`)
 2. **Username**: Your username
 3. **Password**: Your password
+4. **E2E Encryption Key**: Shared secret for end-to-end encryption
 
 The default server address is pre-filled as `ws://127.0.0.1:8080`.
 
@@ -45,6 +46,10 @@ The default server address is pre-filled as `ws://127.0.0.1:8080`.
 
 - WebSocket-based real-time chat
 - Terminal UI with crossterm and tui-rs
+- **End-to-End Encryption (E2E)** with AES-256-GCM
+  - Messages encrypted on client before sending
+  - Server only sees encrypted data
+  - Shared secret key for encryption
 - User authentication
 - Multi-user support
 - Message broadcasting
@@ -61,7 +66,7 @@ The default server address is pre-filled as `ws://127.0.0.1:8080`.
 ## Controls
 
 ### Login Screen
-- **TAB**: Switch between server address, username, and password fields
+- **TAB**: Switch between server address, username, password, and encryption key fields
 - **ENTER**: Connect and login
 - **BACKSPACE**: Delete character
 - **ESC**: Exit application

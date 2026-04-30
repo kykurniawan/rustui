@@ -11,3 +11,7 @@ tokio-tungstenite = { workspace = true }
 futures-util = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+aes-gcm = "0.10"
+base64 = "0.21"
+sha2 = "0.10"
+rand = { workspace = true }

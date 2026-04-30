@@ -1,6 +1,8 @@
 pub use tui::style::Style;
 pub use tui::text::Spans;
 
+pub mod crypto;
+
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use tui::{
@@ -190,6 +192,7 @@ pub struct LoginState {
     pub server_address: String,
     pub username: String,
     pub password: String,
+    pub encryption_key: String,
     pub active_field: u8,
     pub error: String,
 }
@@ -200,6 +203,7 @@ impl LoginState {
             server_address: "ws://127.0.0.1:8080".to_string(), // Default value
             username: String::new(),
             password: String::new(),
+            encryption_key: String::new(),
             active_field: 0,
             error: String::new(),
         }
@@ -233,6 +237,7 @@ pub fn draw_login_screen<W: std::io::Write>(
     let form_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
+            Constraint::Length(3),
             Constraint::Length(3),
             Constraint::Length(3),
             Constraint::Length(3),
@@ -301,11 +306,32 @@ pub fn draw_login_screen<W: std::io::Write>(
         .style(password_style);
     f.render_widget(password_input, form_chunks[2]);
 
+    // Encryption Key field
+    let key_display: String = state.encryption_key.chars().map(|_| '*').collect();
+    let key_style = if state.active_field == 3 {
+        Style::default().fg(Color::Green)
+    } else {
+        Style::default().fg(Color::White)
+    };
+    let key_input = Paragraph::new(key_display.as_str())
+        .block(
+            Block::default()
+                .title(" Encryption Key ")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(if state.active_field == 3 {
+                    Color::Green
+                } else {
+                    Color::DarkGray
+                })),
+        )
+        .style(key_style);
+    f.render_widget(key_input, form_chunks[3]);
+
     let help = Paragraph::new(Text::from("Press TAB to switch fields | ENTER to login"))
         .block(Block::default().borders(Borders::NONE))
         .style(Style::default().fg(Color::DarkGray))
         .alignment(Alignment::Center);
-    f.render_widget(help, form_chunks[3]);
+    f.render_widget(help, form_chunks[4]);
 
     if !state.error.is_empty() {
         let error_block = Paragraph::new(state.error.as_str())
@@ -338,6 +364,12 @@ pub fn draw_login_screen<W: std::io::Write>(
                 + 1
                 + state.password.len().min(form_chunks[2].width as usize - 2) as u16;
             f.set_cursor(cursor_x, form_chunks[2].y + 1);
+        }
+        3 => {
+            let cursor_x = form_chunks[3].x
+                + 1
+                + state.encryption_key.len().min(form_chunks[3].width as usize - 2) as u16;
+            f.set_cursor(cursor_x, form_chunks[3].y + 1);
         }
         _ => {}
     }

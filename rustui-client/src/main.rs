@@ -5,7 +5,7 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use rustui_client::{App, Spans, LoginState, FocusedSection, draw_chat_screen, draw_login_screen, get_timestamp};
+use rustui_client::{App, Spans, LoginState, FocusedSection, draw_chat_screen, draw_login_screen, get_timestamp, crypto::Crypto};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use futures_util::{SinkExt, StreamExt};
 
@@ -35,13 +35,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if key.kind == KeyEventKind::Press {
                     match key.code {
                         KeyCode::Tab => {
-                            login_state.active_field = (login_state.active_field + 1) % 3;
+                            login_state.active_field = (login_state.active_field + 1) % 4;
                         }
                         KeyCode::Char(c) => {
                             match login_state.active_field {
                                 0 => login_state.server_address.push(c),
                                 1 => login_state.username.push(c),
                                 2 => login_state.password.push(c),
+                                3 => login_state.encryption_key.push(c),
                                 _ => {}
                             }
                             login_state.error.clear();
@@ -51,13 +52,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 0 => { login_state.server_address.pop(); }
                                 1 => { login_state.username.pop(); }
                                 2 => { login_state.password.pop(); }
+                                3 => { login_state.encryption_key.pop(); }
                                 _ => {}
                             }
                         }
                         KeyCode::Enter => {
                             if !login_state.server_address.is_empty() 
                                 && !login_state.username.is_empty() 
-                                && !login_state.password.is_empty() {
+                                && !login_state.password.is_empty()
+                                && !login_state.encryption_key.is_empty() {
                                 break;
                             } else {
                                 login_state.error = "All fields are required".to_string();
@@ -173,6 +176,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut app = App::new();
     app.init(username.clone());
 
+    // Create crypto instance with the encryption key
+    let crypto = Crypto::new(&login_state.encryption_key);
+
     // Process any pending messages that arrived during authentication
     for msg in pending_messages {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&msg) {
@@ -204,9 +210,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 match msg_type {
                     "message" => {
                         let from = json.get("from").and_then(|v| v.as_str()).unwrap_or("unknown");
-                        let text = json.get("msg").and_then(|v| v.as_str()).unwrap_or("");
+                        let encrypted_text = json.get("msg").and_then(|v| v.as_str()).unwrap_or("");
                         let ts = get_timestamp();
-                        app.add_message(format!("[{}] {}: {}", ts, from, text));
+                        
+                        // Try to decrypt the message
+                        let display_text = match crypto.decrypt(encrypted_text) {
+                            Ok(decrypted) => decrypted,
+                            Err(_) => format!("[encrypted: {}]", encrypted_text),
+                        };
+                        
+                        app.add_message(format!("[{}] {}: {}", ts, from, display_text));
                     }
                     "list" => {
                         if let Some(clients) = json.get("clients").and_then(|v| v.as_array()) {
@@ -273,13 +286,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     if !app.input.is_empty() && authenticated {
                                         let input = app.input.trim().to_string();
                                         let ts = get_timestamp();
-                                        let msg = format!("[{}] {}: {}", ts, app.username, input);
-                                        app.messages.push(Spans::from(msg));
                                         
-                                        let send_msg = serde_json::json!({
-                                            "Broadcast": { "msg": input }
-                                        });
-                                        let _ = write.send(Message::Text(send_msg.to_string())).await;
+                                        // Encrypt the message before sending
+                                        match crypto.encrypt(&input) {
+                                            Ok(encrypted) => {
+                                                // Show plaintext in our own chat
+                                                let msg = format!("[{}] {}: {}", ts, app.username, input);
+                                                app.messages.push(Spans::from(msg));
+                                                
+                                                // Send encrypted message to server
+                                                let send_msg = serde_json::json!({
+                                                    "Broadcast": { "msg": encrypted }
+                                                });
+                                                let _ = write.send(Message::Text(send_msg.to_string())).await;
+                                            }
+                                            Err(e) => {
+                                                app.add_message(format!("[system] Encryption error: {}", e));
+                                            }
+                                        }
                                         
                                         app.input.clear();
                                         app.input_cursor_pos = 0;
