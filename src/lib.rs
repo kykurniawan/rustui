@@ -1,15 +1,15 @@
-pub use tui::text::Spans;
 pub use tui::style::Style;
+pub use tui::text::Spans;
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use tui::{
+    Frame,
     backend::CrosstermBackend,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::Color,
     text::{Span, Text},
     widgets::{Block, Borders, Paragraph, Wrap},
-    Frame,
 };
 
 pub fn get_timestamp() -> String {
@@ -22,10 +22,6 @@ pub fn get_timestamp() -> String {
     let secs = secs % 60;
     format!("{:02}:{:02}:{:02}", hours, mins, secs)
 }
-
-
-
-
 
 pub struct App {
     pub username: String,
@@ -52,19 +48,27 @@ impl App {
 
     pub fn init(&mut self, username: String) {
         self.username = username.clone();
-let ts = get_timestamp();
-        self.messages = vec![
-            Spans::from(vec![
-                Span::raw("["),
-                Span::styled(ts, Style::default().fg(Color::DarkGray)),
-                Span::raw("] "),
-                Span::styled("system", Style::default().fg(Color::Cyan).add_modifier(tui::style::Modifier::BOLD)),
-                Span::raw(":"),
-                Span::raw(" Welcome "),
-                Span::styled(username.clone(), Style::default().fg(Color::Yellow).add_modifier(tui::style::Modifier::BOLD)),
-                Span::raw("! Type a message to broadcast."),
-            ]),
-        ];
+        let ts = get_timestamp();
+        self.messages = vec![Spans::from(vec![
+            Span::raw("["),
+            Span::styled(ts, Style::default().fg(Color::DarkGray)),
+            Span::raw("] "),
+            Span::styled(
+                "system",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(tui::style::Modifier::BOLD),
+            ),
+            Span::raw(":"),
+            Span::raw(" Welcome "),
+            Span::styled(
+                username.clone(),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(tui::style::Modifier::BOLD),
+            ),
+            Span::raw("! Type a message to broadcast."),
+        ])];
         self.authenticated = true;
     }
 
@@ -95,7 +99,11 @@ impl LoginState {
     }
 }
 
-pub fn draw_login_screen<W: std::io::Write>(f: &mut Frame<CrosstermBackend<W>>, area: Rect, state: &LoginState) {
+pub fn draw_login_screen<W: std::io::Write>(
+    f: &mut Frame<CrosstermBackend<W>>,
+    area: Rect,
+    state: &LoginState,
+) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -105,12 +113,14 @@ pub fn draw_login_screen<W: std::io::Write>(f: &mut Frame<CrosstermBackend<W>>, 
         ])
         .split(area);
 
-    let title = Paragraph::new(
-        Text::from("SECURE CHAT LOGIN")
-    )
-    .block(Block::default().title("").borders(Borders::NONE))
-    .style(Style::default().fg(Color::Yellow).add_modifier(tui::style::Modifier::BOLD))
-    .alignment(Alignment::Center);
+    let title = Paragraph::new(Text::from("SECURE CHAT LOGIN"))
+        .block(Block::default().title("").borders(Borders::NONE))
+        .style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(tui::style::Modifier::BOLD),
+        )
+        .alignment(Alignment::Center);
     f.render_widget(title, chunks[0]);
 
     let form_chunks = Layout::default()
@@ -132,7 +142,11 @@ pub fn draw_login_screen<W: std::io::Write>(f: &mut Frame<CrosstermBackend<W>>, 
             Block::default()
                 .title(" Username ")
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(if state.active_field == 0 { Color::Green } else { Color::DarkGray }))
+                .border_style(Style::default().fg(if state.active_field == 0 {
+                    Color::Green
+                } else {
+                    Color::DarkGray
+                })),
         )
         .style(username_style);
     f.render_widget(username_input, form_chunks[0]);
@@ -148,37 +162,51 @@ pub fn draw_login_screen<W: std::io::Write>(f: &mut Frame<CrosstermBackend<W>>, 
             Block::default()
                 .title(" Password ")
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(if state.active_field == 1 { Color::Green } else { Color::DarkGray }))
+                .border_style(Style::default().fg(if state.active_field == 1 {
+                    Color::Green
+                } else {
+                    Color::DarkGray
+                })),
         )
         .style(password_style);
     f.render_widget(password_input, form_chunks[1]);
 
-    let help = Paragraph::new(
-        Text::from("Press TAB to switch fields | ENTER to login")
-    )
-    .block(Block::default().borders(Borders::NONE))
-    .style(Style::default().fg(Color::DarkGray))
-    .alignment(Alignment::Center);
+    let help = Paragraph::new(Text::from("Press TAB to switch fields | ENTER to login"))
+        .block(Block::default().borders(Borders::NONE))
+        .style(Style::default().fg(Color::DarkGray))
+        .alignment(Alignment::Center);
     f.render_widget(help, form_chunks[2]);
 
     if !state.error.is_empty() {
         let error_block = Paragraph::new(state.error.as_str())
-            .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::Red)))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Red)),
+            )
             .style(Style::default().fg(Color::Red))
             .alignment(Alignment::Center);
         f.render_widget(error_block, chunks[2]);
     }
 
     if state.active_field == 0 {
-        let cursor_x = form_chunks[0].x + 1 + state.username.len().min(form_chunks[0].width as usize - 2) as u16;
+        let cursor_x = form_chunks[0].x
+            + 1
+            + state.username.len().min(form_chunks[0].width as usize - 2) as u16;
         f.set_cursor(cursor_x, form_chunks[0].y + 1);
     } else {
-        let cursor_x = form_chunks[1].x + 1 + state.password.len().min(form_chunks[1].width as usize - 2) as u16;
+        let cursor_x = form_chunks[1].x
+            + 1
+            + state.password.len().min(form_chunks[1].width as usize - 2) as u16;
         f.set_cursor(cursor_x, form_chunks[1].y + 1);
     }
 }
 
-pub fn draw_chat_screen<W: std::io::Write>(f: &mut Frame<CrosstermBackend<W>>, area: Rect, app: &mut App) {
+pub fn draw_chat_screen<W: std::io::Write>(
+    f: &mut Frame<CrosstermBackend<W>>,
+    area: Rect,
+    app: &mut App,
+) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -197,24 +225,35 @@ pub fn draw_chat_screen<W: std::io::Write>(f: &mut Frame<CrosstermBackend<W>>, a
             p.insert(0, app.username.clone());
             p
         };
-        format!("Logged in as {} | {} online", app.username, display_participants.len())
+        format!(
+            "Logged in as {} | {} online",
+            app.username,
+            display_participants.len()
+        )
     } else {
         "Not authenticated".to_string()
     };
 
-    let header = Paragraph::new(
-        Text::from(vec![Spans::from(vec![
-            Span::raw(">> SECURE_CHAT | "),
-            Span::styled(status, Style::default().fg(Color::Green).add_modifier(tui::style::Modifier::BOLD)),
-        ])])
+    let header = Paragraph::new(Text::from(vec![Spans::from(vec![
+        Span::raw(">> SECURE_CHAT | "),
+        Span::styled(
+            status,
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(tui::style::Modifier::BOLD),
+        ),
+    ])]))
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::DarkGray)),
     )
-    .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::DarkGray)))
     .style(Style::default().fg(Color::White));
     f.render_widget(header, chunks[0]);
 
     let visible_height = chunks[1].height.saturating_sub(2) as usize;
     let total_messages = app.messages.len();
-    
+
     if total_messages > visible_height && app.message_scroll > 0 {
         if app.message_scroll as usize >= total_messages {
             app.message_scroll = total_messages.saturating_sub(1) as u16;
@@ -234,26 +273,35 @@ pub fn draw_chat_screen<W: std::io::Write>(f: &mut Frame<CrosstermBackend<W>>, a
     let _msg_area_width = chunks[1].width.saturating_sub(4) as usize;
 
     let mut y_offset = chunks[1].y + 1;
-    let visible_msgs: Vec<_> = app.messages.iter().skip(start_idx).take(visible_height).collect();
-    
-for (i, msg) in visible_msgs.iter().enumerate() {
+    let visible_msgs: Vec<_> = app
+        .messages
+        .iter()
+        .skip(start_idx)
+        .take(visible_height)
+        .collect();
+
+    for (i, msg) in visible_msgs.iter().enumerate() {
         let actual_idx = start_idx + i;
         let is_selected = actual_idx == app.message_scroll as usize;
-        
-        let border_color = if is_selected { Color::Yellow } else { Color::DarkGray };
-        
+
+        let border_color = if is_selected {
+            Color::Yellow
+        } else {
+            Color::DarkGray
+        };
+
         let plain_text: String = msg.0.iter().map(|s| s.content.to_string()).collect();
-        
+
         let paragraph = Paragraph::new(plain_text)
             .block(
                 Block::default()
                     .title(format!("#{}", actual_idx + 1))
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(border_color))
+                    .border_style(Style::default().fg(border_color)),
             )
             .style(Style::default().fg(Color::White))
             .wrap(Wrap { trim: true });
-        
+
         let rect = Rect {
             x: chunks[1].x + 1,
             y: y_offset,
@@ -269,7 +317,7 @@ for (i, msg) in visible_msgs.iter().enumerate() {
             Block::default()
                 .title(" MESSAGE >> ")
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Green))
+                .border_style(Style::default().fg(Color::Green)),
         )
         .style(Style::default().fg(Color::Green))
         .alignment(Alignment::Left)
@@ -282,7 +330,11 @@ for (i, msg) in visible_msgs.iter().enumerate() {
     if input_area.width > 2 && input_area.height > 2 {
         let line_width = (input_area.width - 2) as usize;
         let input_len = app.input.len();
-        let current_line = if line_width > 0 { input_len / line_width } else { 0 };
+        let current_line = if line_width > 0 {
+            input_len / line_width
+        } else {
+            0
+        };
         let visible_lines = (input_area.height - 2) as usize;
 
         if current_line >= (app.input_scroll as usize + visible_lines) {
@@ -291,11 +343,15 @@ for (i, msg) in visible_msgs.iter().enumerate() {
             app.input_scroll = current_line as u16;
         }
 
-        let cursor_col = if line_width > 0 { input_len % line_width } else { 0 };
+        let cursor_col = if line_width > 0 {
+            input_len % line_width
+        } else {
+            0
+        };
         let cursor_row = current_line.saturating_sub(app.input_scroll as usize);
         let cursor_x = input_area.x + 1 + cursor_col as u16;
         let cursor_y = input_area.y + 1 + cursor_row as u16;
-        
+
         f.set_cursor(cursor_x, cursor_y);
     }
 }
