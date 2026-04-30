@@ -9,7 +9,7 @@ use tui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::Color,
     text::{Span, Text},
-    widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
+    widgets::{Block, Borders, Paragraph, Wrap},
 };
 
 pub fn get_timestamp() -> String {
@@ -278,48 +278,117 @@ pub fn draw_chat_screen<W: std::io::Write>(
     .style(Style::default().fg(Color::White));
     f.render_widget(header, chunks[0]);
 
-    // Create list items from messages
-    let items: Vec<ListItem> = app
-        .messages
-        .iter()
-        .map(|msg| {
-            let plain_text: String = msg.0.iter().map(|s| s.content.to_string()).collect();
-            ListItem::new(plain_text)
-        })
-        .collect();
+    // Calculate how many lines each message will take
+    let msg_area_width = chunks[1].width.saturating_sub(4) as usize; // Account for borders and padding
+    let mut message_heights: Vec<usize> = Vec::new();
+    
+    for msg in &app.messages {
+        let plain_text: String = msg.0.iter().map(|s| s.content.to_string()).collect();
+        let text_len = plain_text.len();
+        
+        // Calculate wrapped lines (minimum 1 line per message)
+        let lines = if msg_area_width > 0 {
+            ((text_len + msg_area_width - 1) / msg_area_width).max(1)
+        } else {
+            1
+        };
+        message_heights.push(lines);
+    }
 
-    let total_messages = items.len();
-    let _visible_height = chunks[1].height.saturating_sub(2) as usize;
+    let total_messages = app.messages.len();
+    let visible_height = chunks[1].height.saturating_sub(2) as usize;
 
-    let scroll_indicator = if total_messages > _visible_height {
-        format!(" [{}/{}] ↑↓ to scroll | END to bottom ", 
+    // Calculate which messages can fit in the visible area
+    let mut visible_messages: Vec<usize> = Vec::new();
+    let mut current_height = 0;
+    
+    // Start from the selected message and work backwards to fill the view
+    let start_search = app.message_scroll.min(total_messages.saturating_sub(1));
+    
+    // First, try to show the selected message and messages after it
+    for i in start_search..total_messages {
+        let msg_height = message_heights[i];
+        if current_height + msg_height <= visible_height {
+            visible_messages.push(i);
+            current_height += msg_height;
+        } else {
+            break;
+        }
+    }
+    
+    // Then, add messages before the selected one if there's space
+    if start_search > 0 {
+        for i in (0..start_search).rev() {
+            let msg_height = message_heights[i];
+            if current_height + msg_height <= visible_height {
+                visible_messages.insert(0, i);
+                current_height += msg_height;
+            } else {
+                break;
+            }
+        }
+    }
+
+    let scroll_indicator = if total_messages > 0 {
+        format!(" [{}/{}] ↑↓ scroll | PgUp/PgDn | END to bottom ", 
             app.message_scroll + 1, 
             total_messages)
     } else {
         String::new()
     };
 
-    let messages_list = List::new(items)
-        .block(
-            Block::default()
-                .title(format!(" MESSAGES{} ", scroll_indicator))
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::DarkGray)),
-        )
-        .style(Style::default().fg(Color::White))
-        .highlight_style(
+    // Render the messages block
+    let messages_block = Block::default()
+        .title(format!(" MESSAGES{} ", scroll_indicator))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray));
+    
+    f.render_widget(messages_block, chunks[1]);
+
+    // Render individual messages inside the block
+    let inner_area = Rect {
+        x: chunks[1].x + 1,
+        y: chunks[1].y + 1,
+        width: chunks[1].width.saturating_sub(2),
+        height: chunks[1].height.saturating_sub(2),
+    };
+
+    let mut y_offset = 0;
+    for &msg_idx in &visible_messages {
+        if y_offset >= inner_area.height as usize {
+            break;
+        }
+
+        let msg = &app.messages[msg_idx];
+        let plain_text: String = msg.0.iter().map(|s| s.content.to_string()).collect();
+        let msg_height = message_heights[msg_idx];
+        let is_selected = msg_idx == app.message_scroll;
+
+        let style = if is_selected {
             Style::default()
                 .fg(Color::Yellow)
-                .add_modifier(tui::style::Modifier::BOLD),
-        )
-        .highlight_symbol(">> ");
+                .add_modifier(tui::style::Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::White)
+        };
 
-    // Use stateful widget to handle selection
-    let mut list_state = tui::widgets::ListState::default();
-    list_state.select(Some(app.message_scroll));
+        let prefix = if is_selected { ">> " } else { "   " };
+        let display_text = format!("{}{}", prefix, plain_text);
 
-    // Render with scroll offset
-    f.render_stateful_widget(messages_list, chunks[1], &mut list_state);
+        let paragraph = Paragraph::new(display_text)
+            .style(style)
+            .wrap(Wrap { trim: false });
+
+        let msg_rect = Rect {
+            x: inner_area.x,
+            y: inner_area.y + y_offset as u16,
+            width: inner_area.width,
+            height: msg_height.min((inner_area.height as usize).saturating_sub(y_offset)) as u16,
+        };
+
+        f.render_widget(paragraph, msg_rect);
+        y_offset += msg_height;
+    }
 
     let input_block = Paragraph::new(app.input.as_str())
         .block(

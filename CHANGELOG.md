@@ -4,10 +4,16 @@
 
 ### Fixed
 - **Chat scrolling**: Fixed chat message display when messages exceed the visible area
-  - Messages now properly scroll using TUI's `List` widget with `ListState`
+  - Messages now properly scroll with intelligent height calculation
   - Removed fixed-height message boxes that caused overflow
   - Added auto-scroll feature that follows new messages automatically
   - Auto-scroll disables when manually scrolling up, re-enables when scrolling to bottom
+
+- **Long message wrapping**: Fixed long messages being cut off
+  - Messages now wrap properly to multiple lines based on terminal width
+  - Each message takes only the space it needs (dynamic height)
+  - Scroll calculation accounts for multi-line messages
+  - No more truncated text - all content is visible
 
 ### Added
 - **Enhanced scroll controls**:

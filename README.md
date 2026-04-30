@@ -34,6 +34,17 @@ In another terminal, start the client:
 cargo run -p rustui-client
 ```
 
+## Features
+
+- WebSocket-based real-time chat
+- Terminal UI with crossterm and tui-rs
+- User authentication
+- Multi-user support
+- Message broadcasting
+- **Smart message scrolling** with auto-scroll
+- **Multi-line message wrapping** - long messages wrap properly
+- Participant list tracking
+
 ## Default Users
 
 - admin / secret123
