@@ -1,0 +1,7 @@
+target/
+data/
+.rustui/
+.git/
+Dockerfile
+.dockerignore
+*.md

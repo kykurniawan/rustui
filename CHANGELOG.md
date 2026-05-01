@@ -3,86 +3,77 @@
 ## [Unreleased]
 
 ### Added
-- **End-to-End Encryption (E2E)**: Messages are now encrypted before sending
-  - Uses AES-256-GCM encryption algorithm
-  - Shared secret key entered during login (4th field)
-  - Server only sees encrypted messages (base64-encoded ciphertext)
-  - Messages decrypted only on recipient clients
-  - All users must use the same encryption key to communicate
-  - Failed decryption shows `[encrypted: ...]` instead of plaintext
-  - Encryption key field added to login screen
+- **Room-based chat routing**: Server supports multiple rooms at `ws://host:port/room/<name>`
+  - WebSocket connections are scoped to a specific room
+  - Broadcasts only reach users in the same room
+  - Room field added to client login screen (5th field)
+  - Connection URL includes room path automatically
 
-- **Configurable server address**: Server address is now input during login
-  - Login screen includes server address field (first field)
-  - Default value: `ws://127.0.0.1:8080`
-  - Allows connecting to any WebSocket server
-  - TAB cycles through: Server Address → Username → Password → Encryption Key
+- **rustui-management crate**: CLI tool for managing rooms, users, and access
+  - `room:create / room:delete / room:list / room:users` commands
+  - `user:create / user:delete / user:list / user:rooms` commands
+  - `user:add-room / user:remove-room` for access control
+  - Username validation: alphanumeric + dash only
+  - Blacklisted usernames: admin, root, system, server, mod, moderator, operator, superuser, sys, daemon
+  - Room name validation: alphanumeric + dash only
 
-### Fixed
-- **Login flow**: Fixed double-enter requirement after password input
-  - Authentication message now sent immediately after form submission
-  - Only one Enter press needed to login
-  - Authentication loop now only waits for server response
+- **SQLite persistent storage**: Users, rooms, and access mappings stored in database
+  - Database at `~/.rustui/rustui.db` (cross-platform via `dirs` crate)
+  - Tables: `users`, `rooms`, `user_rooms` (many-to-many)
+  - Auto-created on first run
+  - Password hashing with SHA-256
 
-- **Participant count**: Fixed incorrect online user count for new clients
-  - **Root cause #1**: Authentication loop was discarding unhandled messages (including "list")
-  - **Root cause #2**: Client was only processing one message per loop iteration
-  - **Solution**: Store pending messages during auth loop and process them after authentication
-  - Changed from `if let` to `while let` to process ALL queued messages in main loop
-  - Server sends "authenticated" and "list" messages back-to-back
-  - Client now processes both messages correctly before first UI render
-  - Disconnect handling properly broadcasts updated count to all remaining clients
-  - All clients see accurate online user count in real-time
+- **Room-based access control**: Users must be explicitly added to a room to join
+  - Unauthorized users receive "Access denied" error
+  - Per-room participant lists
 
-- **Chat scrolling**: Fixed chat message display when messages exceed the visible area
-  - Messages now properly scroll with intelligent height calculation
-  - Removed fixed-height message boxes that caused overflow
-  - Added auto-scroll feature that follows new messages automatically
-  - Auto-scroll disables when manually scrolling up, re-enables when scrolling to bottom
+- **Chat header redesign**: Multi-line header with block title
+  - "SECURE CHAT" as centered block title
+  - Info lines: Server, Room, User, State (online count)
+  - Wraps cleanly on small terminals
 
-- **Long message wrapping**: Fixed long messages being cut off
-  - Messages now wrap properly to multiple lines based on terminal width
-  - Each message takes only the space it needs (dynamic height)
-  - Scroll calculation accounts for multi-line messages
-  - No more truncated text - all content is visible
+- **Docker deployment**: Multi-stage Dockerfile with server and management CLI
+  - Persistent data via volume mounts
+  - Management commands runnable inside container
 
-- **Input cursor positioning**: Fixed cursor placement when input text wraps
-  - Cursor now correctly positioned on wrapped lines
-  - Uses character count instead of byte count for accurate positioning
-  - Auto-scrolls input area when typing beyond visible lines
-  - Handles multi-line input properly with bounds checking
-  - Supports full cursor movement (left, right, up, down)
-  - Can edit text at any position, not just at the end
-
-### Added
-- **Configurable server address**: Server address is now input during login
-  - Login screen includes server address field (first field)
-  - Default value: `ws://127.0.0.1:8080`
-  - Allows connecting to any WebSocket server
-  - TAB cycles through: Server Address → Username → Password
-
-- **Focus system**: Switch between Message List and Input Field
-  - Press `SHIFT+TAB` to toggle focus between sections
-  - Visual indicators show which section is focused (`[FOCUSED]`)
-  - Focused section has colored border (Cyan for messages, Green for input)
-  - Cursor only visible when input field is focused
-
-- **Enhanced input controls** (when input is focused):
-  - `LEFT/RIGHT` arrows: Move cursor horizontally
-  - `UP/DOWN` arrows: Move cursor vertically in multi-line input
-  - `HOME`: Jump to start of input
-  - `END`: Jump to end of input
-  - `DELETE`: Delete character after cursor
-  - Full cursor positioning support for editing anywhere in the text
-
-- **Enhanced message list controls** (when message list is focused):
-  - `UP/DOWN` arrows: Scroll one message at a time
-  - `PAGE UP/PAGE DOWN`: Scroll 10 messages at a time
-  - `HOME`: Jump to first message
-  - `END`: Jump to latest message
-  - Visual scroll indicator showing current position
+- **Server address shown in chat UI**: Current server address visible in header
 
 ### Changed
-- `App.message_scroll` type changed from `u16` to `usize` for better indexing
-- Added `App.auto_scroll` field to track auto-scroll state
-- Added helper methods: `scroll_up()`, `scroll_down()`, `scroll_to_bottom()`
+- User authentication now validates against SQLite database (not hardcoded)
+- No default users seeded (use management CLI to create users)
+- Database moved from in-memory to SQLite at `~/.rustui/rustui.db`
+- Client login screen expanded to 5 fields (added Room)
+- Server broadcasts scoped per-room instead of globally
+- Password storage upgraded from plaintext to SHA-256 hash
+- `.gitignore` cleaned up; `.dockerignore` added
+
+### Removed
+- Hardcoded default users (admin/secret123, rizky/pass123, john/john123)
+- Global chat broadcast (replaced with room-scoped broadcast)
+
+## Previous (E2E Encryption & TUI)
+
+### Added
+- **End-to-End Encryption (E2E)**: Messages encrypted before sending
+  - AES-256-GCM encryption algorithm
+  - Shared secret key entered during login
+  - Server only sees encrypted messages (base64-encoded ciphertext)
+  - Failed decryption shows `[encrypted: ...]` instead of plaintext
+
+- **Configurable server address**: Input during login (default `ws://127.0.0.1:8080`)
+
+- **Focus system**: Toggle between Message List and Input Field with SHIFT+TAB
+  - Visual indicators for focused section
+  - Colored borders (Cyan for messages, Green for input)
+
+- **Enhanced input controls**: Full cursor movement (left, right, up, down, home, end, delete)
+
+- **Enhanced message list controls**: Scroll with UP/DOWN, PAGE UP/DOWN, HOME, END
+
+### Fixed
+- Login flow: single Enter press to login (was double-enter)
+- Participant count: accurate online user count via pending message processing
+- Chat scrolling: intelligent height calculation with auto-scroll
+- Long message wrapping: proper multi-line wrapping based on terminal width
+- Input cursor positioning: correct placement on wrapped lines
+- Client now processes ALL queued messages per loop iteration

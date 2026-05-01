@@ -1,6 +1,7 @@
 /target
 /rustui-client/target
 /rustui-server/target
+/rustui-management/target
 Cargo.lock
-
-r
+data/
+.rustui/
