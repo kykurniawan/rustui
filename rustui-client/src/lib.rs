@@ -26,7 +26,9 @@ pub fn get_timestamp() -> String {
 }
 
 pub struct App {
+    pub server_address: String,
     pub username: String,
+    pub room: String,
     pub messages: Vec<Spans<'static>>,
     pub input: String,
     pub input_scroll: u16,
@@ -47,7 +49,9 @@ pub enum FocusedSection {
 impl App {
     pub fn new() -> Self {
         Self {
+            server_address: String::new(),
             username: String::new(),
+            room: String::new(),
             messages: vec![],
             input: String::new(),
             input_scroll: 0,
@@ -60,8 +64,10 @@ impl App {
         }
     }
 
-    pub fn init(&mut self, username: String) {
+    pub fn init(&mut self, server_address: String, username: String, room: String) {
+        self.server_address = server_address.clone();
         self.username = username.clone();
+        self.room = room.clone();
         let ts = get_timestamp();
         self.messages = vec![Spans::from(vec![
             Span::raw("["),
@@ -79,6 +85,20 @@ impl App {
                 username.clone(),
                 Style::default()
                     .fg(Color::Yellow)
+                    .add_modifier(tui::style::Modifier::BOLD),
+            ),
+            Span::raw(" to "),
+            Span::styled(
+                room.clone(),
+                Style::default()
+                    .fg(Color::Magenta)
+                    .add_modifier(tui::style::Modifier::BOLD),
+            ),
+            Span::raw(" on "),
+            Span::styled(
+                server_address.clone(),
+                Style::default()
+                    .fg(Color::Green)
                     .add_modifier(tui::style::Modifier::BOLD),
             ),
             Span::raw("! Type a message to broadcast."),
@@ -190,6 +210,7 @@ impl App {
 
 pub struct LoginState {
     pub server_address: String,
+    pub room: String,
     pub username: String,
     pub password: String,
     pub encryption_key: String,
@@ -200,7 +221,8 @@ pub struct LoginState {
 impl LoginState {
     pub fn new() -> Self {
         Self {
-            server_address: "ws://127.0.0.1:8080".to_string(), // Default value
+            server_address: "ws://127.0.0.1:8080".to_string(),
+            room: String::new(),
             username: String::new(),
             password: String::new(),
             encryption_key: String::new(),
@@ -242,6 +264,7 @@ pub fn draw_login_screen<W: std::io::Write>(
             Constraint::Length(3),
             Constraint::Length(3),
             Constraint::Length(3),
+            Constraint::Length(3),
         ])
         .split(chunks[1]);
 
@@ -265,8 +288,28 @@ pub fn draw_login_screen<W: std::io::Write>(
         .style(server_style);
     f.render_widget(server_input, form_chunks[0]);
 
+    // Room field
+    let room_style = if state.active_field == 1 {
+        Style::default().fg(Color::Green)
+    } else {
+        Style::default().fg(Color::White)
+    };
+    let room_input = Paragraph::new(state.room.as_str())
+        .block(
+            Block::default()
+                .title(" Room ")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(if state.active_field == 1 {
+                    Color::Green
+                } else {
+                    Color::DarkGray
+                })),
+        )
+        .style(room_style);
+    f.render_widget(room_input, form_chunks[1]);
+
     // Username field
-    let username_style = if state.active_field == 1 {
+    let username_style = if state.active_field == 2 {
         Style::default().fg(Color::Green)
     } else {
         Style::default().fg(Color::White)
@@ -276,18 +319,18 @@ pub fn draw_login_screen<W: std::io::Write>(
             Block::default()
                 .title(" Username ")
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(if state.active_field == 1 {
+                .border_style(Style::default().fg(if state.active_field == 2 {
                     Color::Green
                 } else {
                     Color::DarkGray
                 })),
         )
         .style(username_style);
-    f.render_widget(username_input, form_chunks[1]);
+    f.render_widget(username_input, form_chunks[2]);
 
     // Password field
     let password_display: String = state.password.chars().map(|_| '*').collect();
-    let password_style = if state.active_field == 2 {
+    let password_style = if state.active_field == 3 {
         Style::default().fg(Color::Green)
     } else {
         Style::default().fg(Color::White)
@@ -297,18 +340,18 @@ pub fn draw_login_screen<W: std::io::Write>(
             Block::default()
                 .title(" Password ")
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(if state.active_field == 2 {
+                .border_style(Style::default().fg(if state.active_field == 3 {
                     Color::Green
                 } else {
                     Color::DarkGray
                 })),
         )
         .style(password_style);
-    f.render_widget(password_input, form_chunks[2]);
+    f.render_widget(password_input, form_chunks[3]);
 
     // Encryption Key field
     let key_display: String = state.encryption_key.chars().map(|_| '*').collect();
-    let key_style = if state.active_field == 3 {
+    let key_style = if state.active_field == 4 {
         Style::default().fg(Color::Green)
     } else {
         Style::default().fg(Color::White)
@@ -318,20 +361,20 @@ pub fn draw_login_screen<W: std::io::Write>(
             Block::default()
                 .title(" Encryption Key ")
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(if state.active_field == 3 {
+                .border_style(Style::default().fg(if state.active_field == 4 {
                     Color::Green
                 } else {
                     Color::DarkGray
                 })),
         )
         .style(key_style);
-    f.render_widget(key_input, form_chunks[3]);
+    f.render_widget(key_input, form_chunks[4]);
 
     let help = Paragraph::new(Text::from("Press TAB to switch fields | ENTER to login"))
         .block(Block::default().borders(Borders::NONE))
         .style(Style::default().fg(Color::DarkGray))
         .alignment(Alignment::Center);
-    f.render_widget(help, form_chunks[4]);
+    f.render_widget(help, form_chunks[5]);
 
     if !state.error.is_empty() {
         let error_block = Paragraph::new(state.error.as_str())
@@ -356,20 +399,26 @@ pub fn draw_login_screen<W: std::io::Write>(
         1 => {
             let cursor_x = form_chunks[1].x
                 + 1
-                + state.username.len().min(form_chunks[1].width as usize - 2) as u16;
+                + state.room.len().min(form_chunks[1].width as usize - 2) as u16;
             f.set_cursor(cursor_x, form_chunks[1].y + 1);
         }
         2 => {
             let cursor_x = form_chunks[2].x
                 + 1
-                + state.password.len().min(form_chunks[2].width as usize - 2) as u16;
+                + state.username.len().min(form_chunks[2].width as usize - 2) as u16;
             f.set_cursor(cursor_x, form_chunks[2].y + 1);
         }
         3 => {
             let cursor_x = form_chunks[3].x
                 + 1
-                + state.encryption_key.len().min(form_chunks[3].width as usize - 2) as u16;
+                + state.password.len().min(form_chunks[3].width as usize - 2) as u16;
             f.set_cursor(cursor_x, form_chunks[3].y + 1);
+        }
+        4 => {
+            let cursor_x = form_chunks[4].x
+                + 1
+                + state.encryption_key.len().min(form_chunks[4].width as usize - 2) as u16;
+            f.set_cursor(cursor_x, form_chunks[4].y + 1);
         }
         _ => {}
     }
@@ -383,7 +432,7 @@ pub fn draw_chat_screen<W: std::io::Write>(
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),
+            Constraint::Length(6),
             Constraint::Min(0),
             Constraint::Length(5),
         ])
@@ -398,30 +447,31 @@ pub fn draw_chat_screen<W: std::io::Write>(
             p.insert(0, app.username.clone());
             p
         };
-        format!(
-            "Logged in as {} | {} online",
-            app.username,
-            display_participants.len()
-        )
+        format!("State: {} online", display_participants.len())
     } else {
         "Not authenticated".to_string()
     };
 
-    let header = Paragraph::new(Text::from(vec![Spans::from(vec![
-        Span::raw("SECURE CHAT | "),
-        Span::styled(
-            status,
-            Style::default()
-                .fg(Color::Green)
-                .add_modifier(tui::style::Modifier::BOLD),
-        ),
-    ])]))
+    let header = Paragraph::new(Text::from(vec![
+        Spans::from(format!("Server: {}", app.server_address)),
+        Spans::from(format!("Room: {}", app.room)),
+        Spans::from(format!("User: {}", app.username)),
+        Spans::from(status),
+    ]))
     .block(
         Block::default()
+            .title(Spans::from(vec![Span::styled(
+                " SECURE CHAT ",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(tui::style::Modifier::BOLD),
+            )]))
+            .title_alignment(Alignment::Center)
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::DarkGray)),
     )
-    .style(Style::default().fg(Color::White));
+    .style(Style::default().fg(Color::White))
+    .wrap(Wrap { trim: false });
     f.render_widget(header, chunks[0]);
 
     // Calculate how many lines each message will take

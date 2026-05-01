@@ -27,6 +27,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut login_state = LoginState::new();
     let mut authenticated = false;
     let mut username = String::new();
+    let mut room = String::new();
 
     // Login screen loop
     loop {
@@ -40,14 +41,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if key.kind == KeyEventKind::Press {
                     match key.code {
                         KeyCode::Tab => {
-                            login_state.active_field = (login_state.active_field + 1) % 4;
+                            login_state.active_field = (login_state.active_field + 1) % 5;
                         }
                         KeyCode::Char(c) => {
                             match login_state.active_field {
                                 0 => login_state.server_address.push(c),
-                                1 => login_state.username.push(c),
-                                2 => login_state.password.push(c),
-                                3 => login_state.encryption_key.push(c),
+                                1 => login_state.room.push(c),
+                                2 => login_state.username.push(c),
+                                3 => login_state.password.push(c),
+                                4 => login_state.encryption_key.push(c),
                                 _ => {}
                             }
                             login_state.error.clear();
@@ -57,18 +59,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 login_state.server_address.pop();
                             }
                             1 => {
-                                login_state.username.pop();
+                                login_state.room.pop();
                             }
                             2 => {
-                                login_state.password.pop();
+                                login_state.username.pop();
                             }
                             3 => {
+                                login_state.password.pop();
+                            }
+                            4 => {
                                 login_state.encryption_key.pop();
                             }
                             _ => {}
                         },
                         KeyCode::Enter => {
                             if !login_state.server_address.is_empty()
+                                && !login_state.room.is_empty()
                                 && !login_state.username.is_empty()
                                 && !login_state.password.is_empty()
                                 && !login_state.encryption_key.is_empty()
@@ -97,7 +103,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Connect to server
     let server_address = &login_state.server_address;
-    let (ws_stream, _) = match connect_async(server_address).await {
+    let ws_url = format!("{}/room/{}", server_address, login_state.room);
+    let (ws_stream, _) = match connect_async(&ws_url).await {
         Ok(stream) => stream,
         Err(e) => {
             disable_raw_mode()?;
@@ -107,7 +114,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 DisableMouseCapture
             )?;
             terminal.show_cursor()?;
-            eprintln!("Failed to connect to {}: {}", server_address, e);
+            eprintln!("Failed to connect to {}: {}", ws_url, e);
             return Err(e.into());
         }
     };
@@ -145,6 +152,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "authenticated" => {
                         if let Some(user) = json.get("username").and_then(|v| v.as_str()) {
                             username = user.to_string();
+                            room = json
+                                .get("room")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("?")
+                                .to_string();
                             authenticated = true;
                         }
                     }
@@ -189,7 +201,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let mut app = App::new();
-    app.init(username.clone());
+    app.init(
+        login_state.server_address.clone(),
+        username.clone(),
+        room.clone(),
+    );
 
     // Create crypto instance with the encryption key
     let crypto = Crypto::new(&login_state.encryption_key);
