@@ -229,168 +229,259 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    loop {
-        terminal.draw(|f| {
-            let size = f.size();
-            draw_chat_screen(f, size, &mut app);
-        })?;
+    // Store credentials for reconnection
+    let auth_username = login_state.username.clone();
+    let auth_password = login_state.password.clone();
+    let reconnect_url = format!("{}/room/{}", login_state.server_address, login_state.room);
+    let mut last_heartbeat = std::time::Instant::now();
 
-        // Process ALL available messages, not just one
-        while let Some(msg) = rx.try_recv().ok() {
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&msg) {
-                let msg_type = json.get("type").and_then(|v| v.as_str()).unwrap_or("");
-                match msg_type {
-                    "message" => {
-                        let from = json
-                            .get("from")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("unknown");
-                        let encrypted_text = json.get("msg").and_then(|v| v.as_str()).unwrap_or("");
-                        let ts = get_timestamp();
+    // Outer reconnection loop
+    'session: loop {
+        if !app.connected {
+            app.add_message("[system] Reconnecting...".to_string());
+            app.scroll_to_bottom();
 
-                        // Try to decrypt the message
-                        let display_text = match crypto.decrypt(encrypted_text) {
-                            Ok(decrypted) => decrypted,
-                            Err(_) => format!("[encrypted: {}]", encrypted_text),
-                        };
+            // Try to reconnect with exponential backoff
+            let mut retry_delay = 1u64;
+            loop {
+                match connect_async(&reconnect_url).await {
+                    Ok((new_stream, _)) => {
+                        let (new_write, new_read) = new_stream.split();
+                        write = new_write;
 
-                        app.add_message(format!("[{}] {}: {}", ts, from, display_text));
-                    }
-                    "list" => {
-                        if let Some(clients) = json.get("clients").and_then(|v| v.as_array()) {
-                            let ids: Vec<String> = clients
-                                .iter()
-                                .filter_map(|c| c.as_str().map(String::from))
-                                .collect();
-                            app.set_participants(ids);
+                        let (new_tx, new_rx) = tokio::sync::mpsc::channel::<String>(100);
+                        tokio::spawn(async move {
+                            while let Some(msg) = new_read.next().await {
+                                if let Ok(Message::Text(text)) = msg {
+                                    let _ = new_tx.send(text).await;
+                                }
+                            }
+                        });
+                        rx = new_rx;
+
+                        // Re-authenticate
+                        let auth_msg = serde_json::json!({
+                            "Auth": { "username": &auth_username, "password": &auth_password }
+                        });
+                        match write.send(Message::Text(auth_msg.to_string())).await {
+                            Ok(_) => {
+                                let wait_start = std::time::Instant::now();
+                                while wait_start.elapsed() < std::time::Duration::from_secs(5) {
+                                    if let Some(msg) = rx.try_recv().ok() {
+                                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&msg) {
+                                            if json.get("type").and_then(|v| v.as_str()) == Some("authenticated") {
+                                                app.connected = true;
+                                                app.add_message("[system] Reconnected".to_string());
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                                }
+
+                                if app.connected {
+                                    last_heartbeat = std::time::Instant::now();
+                                    break; // out of retry loop, back to chat
+                                }
+                            }
+                            Err(_) => {}
                         }
                     }
-                    "error" => {
-                        let err_msg = json
-                            .get("msg")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("Unknown error");
-                        app.add_message(format!("[system] Error: {}", err_msg));
-                    }
-                    "system" => {
-                        let ts = get_timestamp();
-                        let sys_msg = json.get("msg").and_then(|v| v.as_str()).unwrap_or("");
-                        app.add_message(format!("[{}] system: {}", ts, sys_msg));
-                    }
-                    _ => {}
+                    Err(_) => {}
                 }
+
+                // Exponential backoff before next retry
+                app.add_message(format!(
+                    "[system] Reconnect failed, retrying in {}s...", retry_delay
+                ));
+                app.scroll_to_bottom();
+                tokio::time::sleep(std::time::Duration::from_secs(retry_delay)).await;
+                retry_delay = std::cmp::min(retry_delay * 2, 30);
             }
         }
 
-        if event::poll(Duration::from_millis(50))? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    // Handle Shift+Tab to toggle focus
-                    if key.code == KeyCode::BackTab
-                        || (key.code == KeyCode::Tab && key.modifiers.contains(KeyModifiers::SHIFT))
-                    {
-                        app.toggle_focus();
-                        continue;
-                    }
+        // Inner chat loop
+        'chat: loop {
+            terminal.draw(|f| {
+                let size = f.size();
+                draw_chat_screen(f, size, &mut app);
+            })?;
 
-                    match app.focus {
-                        FocusedSection::Input => {
-                            // Get terminal width for cursor movement calculations
-                            let term_size = terminal.size()?;
-                            let input_width = term_size.width.saturating_sub(4) as usize;
+            // Process ALL available messages, not just one
+            while let Some(msg) = rx.try_recv().ok() {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&msg) {
+                    let msg_type = json.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                    match msg_type {
+                        "message" => {
+                            let from = json
+                                .get("from")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("unknown");
+                            let encrypted_text = json.get("msg").and_then(|v| v.as_str()).unwrap_or("");
+                            let ts = get_timestamp();
 
-                            match key.code {
-                                KeyCode::Char(c) => {
-                                    app.insert_char(c);
-                                }
-                                KeyCode::Backspace => {
-                                    app.delete_char();
-                                }
-                                KeyCode::Delete => {
-                                    app.delete_char_forward();
-                                }
-                                KeyCode::Left => {
-                                    app.move_cursor_left();
-                                }
-                                KeyCode::Right => {
-                                    app.move_cursor_right();
-                                }
-                                KeyCode::Up => {
-                                    app.move_cursor_up(input_width);
-                                }
-                                KeyCode::Down => {
-                                    app.move_cursor_down(input_width);
-                                }
-                                KeyCode::Home => {
-                                    app.move_cursor_to_start();
-                                }
-                                KeyCode::End => {
-                                    app.move_cursor_to_end();
-                                }
-                                KeyCode::Enter => {
-                                    if !app.input.is_empty() && authenticated {
-                                        let input = app.input.trim().to_string();
-                                        let ts = get_timestamp();
+                            // Try to decrypt the message
+                            let display_text = match crypto.decrypt(encrypted_text) {
+                                Ok(decrypted) => decrypted,
+                                Err(_) => format!("[encrypted: {}]", encrypted_text),
+                            };
 
-                                        // Encrypt the message before sending
-                                        match crypto.encrypt(&input) {
-                                            Ok(encrypted) => {
-                                                // Show plaintext in our own chat
-                                                let msg =
-                                                    format!("[{}] {}: {}", ts, app.username, input);
-                                                app.messages.push(Spans::from(msg));
-
-                                                // Send encrypted message to server
-                                                let send_msg = serde_json::json!({
-                                                    "Broadcast": { "msg": encrypted }
-                                                });
-                                                let _ = write
-                                                    .send(Message::Text(send_msg.to_string()))
-                                                    .await;
-                                            }
-                                            Err(e) => {
-                                                app.add_message(format!(
-                                                    "[system] Encryption error: {}",
-                                                    e
-                                                ));
-                                            }
-                                        }
-
-                                        app.input.clear();
-                                        app.input_cursor_pos = 0;
-                                    }
-                                }
-                                KeyCode::Esc => break,
-                                _ => {}
+                            app.add_message(format!("[{}] {}: {}", ts, from, display_text));
+                        }
+                        "list" => {
+                            if let Some(clients) = json.get("clients").and_then(|v| v.as_array()) {
+                                let ids: Vec<String> = clients
+                                    .iter()
+                                    .filter_map(|c| c.as_str().map(String::from))
+                                    .collect();
+                                app.set_participants(ids);
                             }
                         }
-                        FocusedSection::MessageList => match key.code {
-                            KeyCode::Up => {
-                                app.scroll_up();
+                        "error" => {
+                            let err_msg = json
+                                .get("msg")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("Unknown error");
+                            app.add_message(format!("[system] Error: {}", err_msg));
+                        }
+                        "system" => {
+                            let ts = get_timestamp();
+                            let sys_msg = json.get("msg").and_then(|v| v.as_str()).unwrap_or("");
+                            app.add_message(format!("[{}] system: {}", ts, sys_msg));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            // Heartbeat every 30s to keep connection alive through proxies
+            if last_heartbeat.elapsed() >= std::time::Duration::from_secs(30) {
+                if write.send(Message::Ping(vec![])).await.is_err() {
+                    app.connected = false;
+                    app.add_message("[system] Connection lost. Reconnecting...".to_string());
+                    app.scroll_to_bottom();
+                    break 'chat; // back to reconnection loop
+                }
+                last_heartbeat = std::time::Instant::now();
+            }
+
+            if event::poll(Duration::from_millis(50))? {
+                if let Event::Key(key) = event::read()? {
+                    if key.kind == KeyEventKind::Press {
+                        // Handle Shift+Tab to toggle focus
+                        if key.code == KeyCode::BackTab
+                            || (key.code == KeyCode::Tab && key.modifiers.contains(KeyModifiers::SHIFT))
+                        {
+                            app.toggle_focus();
+                            continue;
+                        }
+
+                        match app.focus {
+                            FocusedSection::Input => {
+                                // Get terminal width for cursor movement calculations
+                                let term_size = terminal.size()?;
+                                let input_width = term_size.width.saturating_sub(4) as usize;
+
+                                match key.code {
+                                    KeyCode::Char(c) => {
+                                        app.insert_char(c);
+                                    }
+                                    KeyCode::Backspace => {
+                                        app.delete_char();
+                                    }
+                                    KeyCode::Delete => {
+                                        app.delete_char_forward();
+                                    }
+                                    KeyCode::Left => {
+                                        app.move_cursor_left();
+                                    }
+                                    KeyCode::Right => {
+                                        app.move_cursor_right();
+                                    }
+                                    KeyCode::Up => {
+                                        app.move_cursor_up(input_width);
+                                    }
+                                    KeyCode::Down => {
+                                        app.move_cursor_down(input_width);
+                                    }
+                                    KeyCode::Home => {
+                                        app.move_cursor_to_start();
+                                    }
+                                    KeyCode::End => {
+                                        app.move_cursor_to_end();
+                                    }
+                                    KeyCode::Enter => {
+                                        if !app.input.is_empty() && app.connected {
+                                            let input = app.input.trim().to_string();
+                                            let ts = get_timestamp();
+
+                                            // Encrypt the message before sending
+                                            match crypto.encrypt(&input) {
+                                                Ok(encrypted) => {
+                                                    // Show plaintext in our own chat
+                                                    let msg =
+                                                        format!("[{}] {}: {}", ts, app.username, input);
+                                                    app.messages.push(Spans::from(msg));
+
+                                                    // Send encrypted message to server
+                                                    let send_msg = serde_json::json!({
+                                                        "Broadcast": { "msg": encrypted }
+                                                    });
+                                                    if write
+                                                        .send(Message::Text(send_msg.to_string()))
+                                                        .await
+                                                        .is_err()
+                                                    {
+                                                        app.connected = false;
+                                                        app.add_message("[system] Connection lost. Reconnecting...".to_string());
+                                                        app.scroll_to_bottom();
+                                                        break 'chat;
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    app.add_message(format!(
+                                                        "[system] Encryption error: {}",
+                                                        e
+                                                    ));
+                                                }
+                                            }
+
+                                            app.input.clear();
+                                            app.input_cursor_pos = 0;
+                                        }
+                                    }
+                                    KeyCode::Esc => break 'session,
+                                    _ => {}
+                                }
                             }
-                            KeyCode::Down => {
-                                app.scroll_down();
-                            }
-                            KeyCode::PageUp => {
-                                for _ in 0..10 {
+                            FocusedSection::MessageList => match key.code {
+                                KeyCode::Up => {
                                     app.scroll_up();
                                 }
-                            }
-                            KeyCode::PageDown => {
-                                for _ in 0..10 {
+                                KeyCode::Down => {
                                     app.scroll_down();
                                 }
-                            }
-                            KeyCode::Home => {
-                                app.message_scroll = 0;
-                                app.auto_scroll = false;
-                            }
-                            KeyCode::End => {
-                                app.scroll_to_bottom();
-                            }
-                            KeyCode::Esc => break,
-                            _ => {}
-                        },
+                                KeyCode::PageUp => {
+                                    for _ in 0..10 {
+                                        app.scroll_up();
+                                    }
+                                }
+                                KeyCode::PageDown => {
+                                    for _ in 0..10 {
+                                        app.scroll_down();
+                                    }
+                                }
+                                KeyCode::Home => {
+                                    app.message_scroll = 0;
+                                    app.auto_scroll = false;
+                                }
+                                KeyCode::End => {
+                                    app.scroll_to_bottom();
+                                }
+                                KeyCode::Esc => break 'session,
+                                _ => {}
+                            },
+                        }
                     }
                 }
             }

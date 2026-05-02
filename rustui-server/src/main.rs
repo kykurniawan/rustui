@@ -5,6 +5,7 @@ use futures_util::{SinkExt, StreamExt};
 use sha2::{Digest, Sha256};
 use tokio::net::TcpListener;
 use tokio::sync::{mpsc, RwLock};
+use tokio::time::interval;
 use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
 use tokio_tungstenite::tungstenite::Message;
 
@@ -164,6 +165,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
 
+                    let mut heartbeat = interval(std::time::Duration::from_secs(30));
+
                     loop {
                         tokio::select! {
                             msg = rx.recv() => {
@@ -281,19 +284,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     }
                                     Some(Ok(Message::Close(_))) => {
                                         println!("Client {} disconnected from room {}", peer_addr, room_name);
-                                        cleanup_client(&clients, &room_name, &my_username, &peer_str).await;
                                         break;
                                     }
                                     None | Some(Err(_)) => {
                                         println!("Client {} connection error in room {}", peer_addr, room_name);
-                                        cleanup_client(&clients, &room_name, &my_username, &peer_str).await;
                                         break;
                                     }
                                     _ => {}
                                 }
                             }
+                            _ = heartbeat.tick() => {
+                                if write.send(Message::Ping(vec![])).await.is_err() {
+                                    println!("Client {} heartbeat failed, disconnecting from room {}", peer_addr, room_name);
+                                    break;
+                                }
+                            }
                         }
                     }
+
+                    // Always clean up on loop exit
+                    cleanup_client(&clients, &room_name, &my_username, &peer_str).await;
                 });
             }
             Err(e) => {

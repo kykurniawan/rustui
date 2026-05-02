@@ -36,6 +36,7 @@ pub struct App {
     pub message_scroll: usize,
     pub participants: Vec<String>,
     pub authenticated: bool,
+    pub connected: bool,
     pub auto_scroll: bool,
     pub focus: FocusedSection,
 }
@@ -59,6 +60,7 @@ impl App {
             message_scroll: 0,
             participants: vec![],
             authenticated: false,
+            connected: true,
             auto_scroll: true,
             focus: FocusedSection::Input,
         }
@@ -456,6 +458,11 @@ pub fn draw_chat_screen<W: std::io::Write>(
         Spans::from(format!("Server: {}", app.server_address)),
         Spans::from(format!("Room: {}", app.room)),
         Spans::from(format!("User: {}", app.username)),
+        Spans::from(if app.connected {
+            format!("Status: Connected")
+        } else {
+            format!("Status: \u{26a0}\u{fe0f} Disconnected - reconnecting...")
+        }),
         Spans::from(status),
     ]))
     .block(
