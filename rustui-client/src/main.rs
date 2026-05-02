@@ -276,7 +276,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Outer reconnection loop
     'session: loop {
         if !app.connected {
-            app.add_message("[system] Reconnecting...".to_string());
+            app.add_message(format!("[{}] system: Reconnecting...", get_timestamp()));
             app.scroll_to_bottom();
 
             // Try to reconnect with exponential backoff
@@ -309,7 +309,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&msg) {
                                             if json.get("type").and_then(|v| v.as_str()) == Some("authenticated") {
                                                 app.connected = true;
-                                                app.add_message("[system] Reconnected".to_string());
+                                                app.add_message(format!("[{}] system: Reconnected", get_timestamp()));
                                                 break;
                                             }
                                         }
@@ -330,7 +330,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 // Exponential backoff before next retry
                 app.add_message(format!(
-                    "[system] Reconnect failed, retrying in {}s...", retry_delay
+                    "[{}] system: Reconnect failed, retrying in {}s...", get_timestamp(), retry_delay
                 ));
                 app.scroll_to_bottom();
                 tokio::time::sleep(std::time::Duration::from_secs(retry_delay)).await;
@@ -396,7 +396,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if last_heartbeat.elapsed() >= std::time::Duration::from_secs(30) {
                 if write.send(Message::Ping(vec![])).await.is_err() {
                     app.connected = false;
-                    app.add_message("[system] Connection lost. Reconnecting...".to_string());
+                    app.add_message(format!("[{}] system: Connection lost. Reconnecting...", get_timestamp()));
                     app.scroll_to_bottom();
                     break 'chat; // back to reconnection loop
                 }
@@ -471,7 +471,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                         .is_err()
                                                     {
                                                         app.connected = false;
-                                                        app.add_message("[system] Connection lost. Reconnecting...".to_string());
+                                                        app.add_message(format!("[{}] system: Connection lost. Reconnecting...", get_timestamp()));
                                                         app.scroll_to_bottom();
                                                         break 'chat;
                                                     }
