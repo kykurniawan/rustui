@@ -179,6 +179,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
                     match key.code {
+                        KeyCode::Tab => {
+                            login_state.active_field = (login_state.active_field + 1) % 5;
+                        }
+                        KeyCode::Char(c) => {
+                            match login_state.active_field {
+                                0 => login_state.server_address.push(c),
+                                1 => login_state.room.push(c),
+                                2 => login_state.username.push(c),
+                                3 => login_state.password.push(c),
+                                4 => login_state.encryption_key.push(c),
+                                _ => {}
+                            }
+                            login_state.error.clear();
+                        }
+                        KeyCode::Backspace => match login_state.active_field {
+                            0 => { login_state.server_address.pop(); }
+                            1 => { login_state.room.pop(); }
+                            2 => { login_state.username.pop(); }
+                            3 => { login_state.password.pop(); }
+                            4 => { login_state.encryption_key.pop(); }
+                            _ => {}
+                        },
+                        KeyCode::Enter => {
+                            if !login_state.server_address.is_empty()
+                                && !login_state.room.is_empty()
+                                && !login_state.username.is_empty()
+                                && !login_state.password.is_empty()
+                                && !login_state.encryption_key.is_empty()
+                            {
+                                login_state.error.clear();
+                                let auth_msg = serde_json::json!({
+                                    "Auth": { "username": &login_state.username, "password": &login_state.password }
+                                });
+                                let _ = write.send(Message::Text(auth_msg.to_string())).await;
+                            } else {
+                                login_state.error = "All fields are required".to_string();
+                            }
+                        }
                         KeyCode::Esc => {
                             disable_raw_mode()?;
                             execute!(
