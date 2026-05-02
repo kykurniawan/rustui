@@ -5,6 +5,7 @@ use futures_util::{SinkExt, StreamExt};
 use sha2::{Digest, Sha256};
 use tokio::net::TcpListener;
 use tokio::sync::{mpsc, RwLock};
+use tokio::time::interval;
 use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
 use tokio_tungstenite::tungstenite::Message;
 
@@ -92,8 +93,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let clients: ClientMap = Arc::new(RwLock::new(HashMap::new()));
 
     let listener = TcpListener::bind("0.0.0.0:8080").await?;
-    println!("WebSocket server listening on ws://127.0.0.1:8080");
-    println!("Connect to rooms at: ws://127.0.0.1:8080/room/<room-name>");
+    println!("WebSocket server listening on ws://0.0.0.0:8080");
+    println!("Connect to rooms at: ws://0.0.0.0:8080/room/<room-name>");
 
     loop {
         match listener.accept().await {
@@ -163,6 +164,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             room.insert(peer_str.clone(), tx);
                         }
                     }
+
+                    let mut heartbeat = interval(std::time::Duration::from_secs(30));
 
                     loop {
                         tokio::select! {
@@ -281,19 +284,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     }
                                     Some(Ok(Message::Close(_))) => {
                                         println!("Client {} disconnected from room {}", peer_addr, room_name);
-                                        cleanup_client(&clients, &room_name, &my_username, &peer_str).await;
                                         break;
                                     }
                                     None | Some(Err(_)) => {
                                         println!("Client {} connection error in room {}", peer_addr, room_name);
-                                        cleanup_client(&clients, &room_name, &my_username, &peer_str).await;
                                         break;
                                     }
                                     _ => {}
                                 }
                             }
+                            _ = heartbeat.tick() => {
+                                if write.send(Message::Ping(vec![])).await.is_err() {
+                                    println!("Client {} heartbeat failed, disconnecting from room {}", peer_addr, room_name);
+                                    break;
+                                }
+                            }
                         }
                     }
+
+                    // Always clean up on loop exit
+                    cleanup_client(&clients, &room_name, &my_username, &peer_str).await;
                 });
             }
             Err(e) => {

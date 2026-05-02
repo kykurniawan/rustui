@@ -14,15 +14,60 @@ use tui::{
     widgets::{Block, Borders, Paragraph, Wrap},
 };
 
+fn days_in_month(year: u64, month: u64) -> u64 {
+    match month {
+        2 => {
+            if (year % 400 == 0) || (year % 4 == 0 && year % 100 != 0) {
+                29
+            } else {
+                28
+            }
+        }
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
+    }
+}
+
 pub fn get_timestamp() -> String {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();
-    let secs = now.as_secs();
-    let hours = (secs / 3600) % 24;
-    let mins = (secs / 60) % 60;
-    let secs = secs % 60;
-    format!("{:02}:{:02}:{:02}", hours, mins, secs)
+    let mut secs = now.as_secs();
+
+    let ss = secs % 60;
+    secs /= 60;
+    let mm = secs % 60;
+    secs /= 60;
+    let hh = secs % 24;
+    secs /= 24;
+
+    let mut days = secs as u64;
+    let mut year: u64 = 1970;
+    loop {
+        let days_in_year = if (year % 400 == 0) || (year % 4 == 0 && year % 100 != 0) {
+            366
+        } else {
+            365
+        };
+        if days < days_in_year {
+            break;
+        }
+        days -= days_in_year;
+        year += 1;
+    }
+
+    let mut month: u64 = 1;
+    loop {
+        let dim = days_in_month(year, month);
+        if days < dim {
+            break;
+        }
+        days -= dim;
+        month += 1;
+    }
+    let dd = days + 1;
+
+    format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC", year, month, dd, hh, mm, ss)
 }
 
 pub struct App {
@@ -36,6 +81,7 @@ pub struct App {
     pub message_scroll: usize,
     pub participants: Vec<String>,
     pub authenticated: bool,
+    pub connected: bool,
     pub auto_scroll: bool,
     pub focus: FocusedSection,
 }
@@ -59,6 +105,7 @@ impl App {
             message_scroll: 0,
             participants: vec![],
             authenticated: false,
+            connected: true,
             auto_scroll: true,
             focus: FocusedSection::Input,
         }
@@ -221,7 +268,7 @@ pub struct LoginState {
 impl LoginState {
     pub fn new() -> Self {
         Self {
-            server_address: "ws://127.0.0.1:8080".to_string(),
+            server_address: "ws://".to_string(),
             room: String::new(),
             username: String::new(),
             password: String::new(),
@@ -277,7 +324,7 @@ pub fn draw_login_screen<W: std::io::Write>(
     let server_input = Paragraph::new(state.server_address.as_str())
         .block(
             Block::default()
-                .title(" Server Address (ws://host:port) ")
+                .title(" Server Address (ws://...) ")
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(if state.active_field == 0 {
                     Color::Green
@@ -432,7 +479,7 @@ pub fn draw_chat_screen<W: std::io::Write>(
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(6),
+            Constraint::Length(7),
             Constraint::Min(0),
             Constraint::Length(5),
         ])
@@ -456,6 +503,11 @@ pub fn draw_chat_screen<W: std::io::Write>(
         Spans::from(format!("Server: {}", app.server_address)),
         Spans::from(format!("Room: {}", app.room)),
         Spans::from(format!("User: {}", app.username)),
+        Spans::from(if app.connected {
+            format!("Status: Connected")
+        } else {
+            format!("Status: \u{26a0}\u{fe0f} Disconnected - reconnecting...")
+        }),
         Spans::from(status),
     ]))
     .block(
